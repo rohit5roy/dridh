@@ -169,7 +169,17 @@ install_uv() {
 }
 
 install_glow() {
-  if have brew; then say "installing glow with Homebrew"; brew install glow; return; fi
+  if have brew; then
+    # Under Rosetta, Homebrew refuses to install into the Apple Silicon prefix; run the native Homebrew instead.
+    if [ "$(sysctl -n sysctl.proc_translated 2>/dev/null || echo 0)" = 1 ] && [ -x /opt/homebrew/bin/brew ]; then
+      say "installing glow with the native Apple Silicon Homebrew"
+      arch -arm64 /opt/homebrew/bin/brew install glow
+    else
+      say "installing glow with Homebrew"
+      brew install glow
+    fi
+    return
+  fi
   [ -n "$downloader" ] || die "glow is missing and neither curl nor wget is available; use --no-glow to skip it"
   local os arch name base
   case "$(uname -s)" in Linux) os=Linux ;; Darwin) os=Darwin ;; *) die "no glow build for $(uname -s); use --no-glow" ;; esac
