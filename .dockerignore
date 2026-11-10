@@ -1,0 +1,17 @@
+# Keep the E2E build context small and free of host state.
+.git
+.github
+docs
+verification
+spikes
+**/.DS_Store
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+**/.ruff_cache
+**/.venv
+**/node_modules
+**/dist
+dridh/src/dridh/assets
+dridh/e2e-evidence
+dridh/opencode/plugins/dridh-bridge/dist

@@ -1,0 +1,179 @@
+# Live model tests (Category B), opt-in: run only when started by hand from the Actions tab.
+#
+# OpenCode uses the OPENROUTER_API_KEY secret with the chosen OpenRouter model (default: the approved NVIDIA Nemotron
+# free endpoint); OPENCODE_PROVIDER_CREDENTIAL stays separate for the Jev System One call. Secrets are never printed or
+# persisted. With require_live, model acceptance fails (rather than skips) if the live provider cannot complete the
+# three-worker Planner pipeline.
+
+name: Live model tests (opt-in)
+
+on:
+  workflow_dispatch:
+    inputs:
+      model:
+        description: "OpenRouter model for the live run, as openrouter/<id> (default keeps the approved NVIDIA Nemotron)."
+        required: false
+        default: "openrouter/nvidia/nemotron-3.5-super-vl:free"
+        type: string
+      require_live:
+        description: "Fail (instead of skipping) when the live model is unavailable, for release acceptance runs."
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live-models-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  # The approved default unless a run overrides it through the `model` input.
+  LIVE_MODEL: ${{ inputs.model || 'openrouter/nvidia/nemotron-3.5-super-vl:free' }}
+
+jobs:
+  live-provider:
+    name: Live provider tests (Category B)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Check that the live model is reachable (skip the live steps if not)
+        id: preflight
+        shell: bash
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          OPENCODE_PROVIDER_CREDENTIAL: ${{ secrets.OPENCODE_PROVIDER_CREDENTIAL }}
+          REQUIRE_LIVE: ${{ inputs.require_live }}
+        run: python3 scripts/ci/live_model_preflight.py
+
+      - name: Set up the toolchain, the pinned OpenCode CLI and the locked Python dependencies
+        if: steps.preflight.outputs.available == 'true'
+        uses: ./.github/actions/setup
+        with:
+          node: "true"
+          opencode: "true"
+
+      - name: Set up disposable live configuration and workspace
+        if: steps.preflight.outputs.available == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/live-config/agents/dridh" "$RUNNER_TEMP/live-workspace"
+          cp -R dridh/opencode/agents/dridh/. "$RUNNER_TEMP/live-config/agents/dridh/"
+          cp dridh/tests/live/test-worker.md "$RUNNER_TEMP/live-config/agents/dridh/test-worker.md"
+          # The model comes from the LIVE_MODEL env var (never interpolated into the script) and is validated.
+          python3 - "$RUNNER_TEMP/live-config/opencode.json" <<'PY'
+          import json
+          import os
+          import re
+          import sys
+
+          model = os.environ["LIVE_MODEL"]
+          if not re.fullmatch(r"openrouter/[A-Za-z0-9][A-Za-z0-9._:/-]{0,120}", model):
+              raise SystemExit("LIVE_MODEL must look like openrouter/<model-id>")
+          provider_model = model.split("/", 1)[1]
+          # Known limits; other models get conservative defaults.
+          limits = {"nvidia/nemotron-3.5-super-vl:free": (1000000, 131072)}
+          context, output = limits.get(provider_model, (200000, 32768))
+          config = {
+              "$schema": "https://opencode.ai/config.json",
+              "model": model,
+              "providers": {"openrouter": {"models": {provider_model: {
+                  "name": provider_model, "limit": {"context": context, "output": output}}}}},
+          }
+          with open(sys.argv[1], "w", encoding="utf-8") as handle:
+              json.dump(config, handle, indent=2)
+          PY
+          cd "$RUNNER_TEMP/live-workspace"
+          git init -q 2>/dev/null || true
+
+      - name: Live provider tests with explicit timeouts and required NVIDIA Nemotron acceptance
+        if: steps.preflight.outputs.available == 'true'
+        shell: bash
+        working-directory: dridh
+        env:
+          DRIDH_OPENCODE_BIN: ${{ github.workspace }}/scripts/ci/opencode-cli/node_modules/.bin/opencode
+          # OpenCode's native OpenRouter provider reads OPENROUTER_API_KEY.
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          # Jev System One continues using its existing independent credential.
+          OPENCODE_PROVIDER_CREDENTIAL: ${{ secrets.OPENCODE_PROVIDER_CREDENTIAL }}
+          DRIDH_REAL_OPENCODE_CONFIG: ${{ runner.temp }}/live-config
+          DRIDH_REAL_OPENCODE_WORKSPACE: ${{ runner.temp }}/live-workspace
+          DRIDH_REAL_JEV: "1"
+          DRIDH_PLANNER_LIVE_MODEL: ${{ env.LIVE_MODEL }}
+          DRIDH_PLANNER_LIVE_EVIDENCE: ${{ runner.temp }}/live/planner-evidence.json
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/live"
+          # Validate both independent credentials without printing either value or its length.
+          test -n "${OPENROUTER_API_KEY:-}"
+          test -n "${OPENCODE_PROVIDER_CREDENTIAL:-}"
+          export DRIDH_REAL_OPENCODE=1
+          timeout_seconds=900
+          # Run the required three-worker NVIDIA Nemotron pipeline and real Jev call.
+          # Avoid spending provider quota on the older generic smoke/resume models.
+          timeout "$timeout_seconds" uv run pytest -m live -k "ideator_complete_pipeline or planner_complete_pipeline or jev_decision" -q -rs --junitxml "$RUNNER_TEMP/live/pytest-live.xml" | tee "$RUNNER_TEMP/live/pytest-live.log"
+          # A green pytest process is insufficient if the Planner test was skipped.
+          # Require one non-skipped passing test case and its real invocation evidence.
+          python3 - "$RUNNER_TEMP/live/pytest-live.xml" "$RUNNER_TEMP/live/planner-evidence.json" <<'PY'
+          import json
+          import os
+          import sys
+          import xml.etree.ElementTree as ET
+
+          junit_path, evidence_path = sys.argv[1:]
+          root = ET.parse(junit_path).getroot()
+          cases = [
+              case for case in root.iter("testcase")
+              if "test_planner_complete_pipeline_runs_all_workers_on_nvidia_openrouter_and_reconciles_sqlite"
+              in case.attrib.get("name", "")
+          ]
+          if len(cases) != 1:
+              raise SystemExit(f"Expected exactly one Planner live acceptance test, found {len(cases)}")
+          if any(child.tag in {"skipped", "failure", "error"} for child in cases[0]):
+              raise SystemExit("The Planner live acceptance test was skipped or failed")
+          with open(evidence_path, encoding="utf-8") as handle:
+              evidence = json.load(handle)
+          expected_model = os.environ["LIVE_MODEL"]
+          expected_agents = {
+              "dridh/workers/planner-indexer",
+              "dridh/workers/planner-component",
+              "dridh/workers/planner-testing",
+          }
+          calls = evidence.get("worker_calls", [])
+          if evidence.get("provider") != "OpenRouter" or evidence.get("model") != expected_model:
+              raise SystemExit("Planner live evidence does not identify the model under test")
+          if {call.get("agent") for call in calls} != expected_agents:
+              raise SystemExit("Planner live evidence does not contain all three worker invocations")
+          if not all(call.get("success") and call.get("model") == expected_model for call in calls):
+              raise SystemExit("One or more Planner worker invocations failed or used a different model")
+          if not evidence.get("gate_unlocked") or not evidence.get("reconciled_documents"):
+              raise SystemExit("Planner live evidence is missing the gate or SQLite reconciliation proof")
+          print(f"Planner live acceptance PASS: all three real OpenCode worker invocations used {expected_model}.")
+          PY
+
+      - name: Summarise live results
+        if: always() && steps.preflight.outputs.available == 'true'
+        shell: bash
+        run: |
+          set -uo pipefail
+          if [ -f "$RUNNER_TEMP/live/pytest-live.xml" ]; then
+            python3 scripts/ci/summarize_results.py junit "$RUNNER_TEMP/live/pytest-live.xml" | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Live tests did not run. Check the preceding setup step." | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload live evidence
+        if: always() && steps.preflight.outputs.available == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: live-model-evidence
+          path: ${{ runner.temp }}/live
+          if-no-files-found: warn
+          retention-days: 30

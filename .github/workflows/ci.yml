@@ -1,0 +1,346 @@
+# Dridh CI: every change to main and every pull request, in stages that stop early.
+#
+#   0  changes        what changed (a docs-only change skips stages 1-3; the gate still reports)
+#   1  security       secret scan, install.sh shellcheck, workflow lint, version guard   } in parallel
+#      build          ruff, lock check, plugin build, packaged assets, wheel              }
+#   2  python-tests   the whole Category A suite, incl. real Docker container tests       } in parallel
+#      plugin-tests   TypeScript bridge client and TUI                                    }
+#      packaging      the built wheel installed into a clean environment                  }
+#   3  docker-e2e     Docker full-system E2E (Category C)
+#      gate           the one required check for branch protection
+#
+# Toolchain versions and caches live in .github/actions/setup. Third-party actions are pinned to commit SHAs (kept
+# current by Dependabot). OpenCode is lock-pinned to 2.2.6 in scripts/ci/opencode-cli (Dridh supports 2.2.5 or later,
+# D-P18-03). Live model tests are a separate opt-in workflow (live-models.yml). Releases: release.yml.
+# Skipped tests are inventoried in each job summary and never counted as passed.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  # Safe for this workflow: read-only token, no secrets referenced, GitHub-hosted runners only.
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  changes:
+    name: "0 · What changed"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      code: ${{ steps.diff.outputs.code }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Anything besides documentation?
+        id: diff
+        shell: bash
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" = workflow_dispatch ] || [ -z "$BASE" ] || [ "$BASE" = 0000000000000000000000000000000000000000 ] \
+             || ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+            echo "code=true" >> "$GITHUB_OUTPUT"; echo "Full run (no usable base commit)."; exit 0
+          fi
+          changed=$(git diff --name-only "$BASE" HEAD)
+          printf '%s\n' "$changed"
+          if printf '%s\n' "$changed" | grep -qvE '^docs/|^$'; then echo "code=true" >> "$GITHUB_OUTPUT"
+          else echo "code=false" >> "$GITHUB_OUTPUT"; echo "Documentation only: stages 1-3 are skipped." >> "$GITHUB_STEP_SUMMARY"; fi
+
+  security:
+    name: "1 · Security and repository checks"
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Set up the toolchain
+        uses: ./.github/actions/setup
+        with:
+          sync: "false"
+
+      - name: Scan tracked files for committed credentials
+        shell: bash
+        run: python3 scripts/ci/scan_secrets.py --tracked --root "$GITHUB_WORKSPACE"
+
+      - name: Lint install.sh (shellcheck, pinned through PyPI)
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n install.sh
+          uvx --from shellcheck-py==0.11.0.1 shellcheck -S warning install.sh
+
+      - name: Lint the workflows (actionlint with shellcheck, both pinned through PyPI)
+        shell: bash
+        run: uvx --with shellcheck-py==0.11.0.1 --from actionlint-py==1.7.12.25 actionlint -color
+
+      - name: The version only moves forward
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(python3 dridh/scripts/version.py)
+          mapfile -t tags < <(git tag -l 'v*')
+          python3 dridh/scripts/version.py check-newer ${tags[@]+"${tags[@]}"}
+          echo "Version $version is newer than every release." >> "$GITHUB_STEP_SUMMARY"
+
+  build:
+    name: "1 · Lint and build"
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up the toolchain
+        uses: ./.github/actions/setup
+        with:
+          node: "true"
+
+      - name: Ruff lint (all source and tests; no auto-fix)
+        shell: bash
+        working-directory: dridh
+        run: uv run ruff check src tests
+
+      - name: Build the plugin and stage packaged assets
+        shell: bash
+        working-directory: dridh/opencode/plugins/dridh-bridge
+        run: |
+          set -euo pipefail
+          npm ci --no-audit --no-fund
+          npm run build
+          cd "$GITHUB_WORKSPACE/dridh" && uv run python scripts/build_assets.py
+
+      - name: Build the wheel
+        shell: bash
+        working-directory: dridh
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/dist"
+          DRIDH_SKIP_ASSET_BUILD=1 uv build --wheel --out-dir "$RUNNER_TEMP/dist"
+          python3 "$GITHUB_WORKSPACE/scripts/ci/check_wheel.py" "$RUNNER_TEMP"/dist/dridh-*.whl
+          (cd "$RUNNER_TEMP/dist" && sha256sum ./*.whl) | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the wheel
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dridh-wheel
+          path: ${{ runner.temp }}/dist/*.whl
+          if-no-files-found: error
+          retention-days: 30
+
+  python-tests:
+    name: "2 · Python tests (Category A)"
+    needs: [security, build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up the toolchain
+        uses: ./.github/actions/setup
+        with:
+          node: "true"
+          opencode: "true"
+
+      - name: Build the plugin and stage packaged assets
+        shell: bash
+        working-directory: dridh/opencode/plugins/dridh-bridge
+        run: |
+          set -euo pipefail
+          npm ci --no-audit --no-fund
+          npm run build
+          cd "$GITHUB_WORKSPACE/dridh" && uv run python scripts/build_assets.py
+
+      - name: Category A tests (mandatory; no unexplained skips)
+        shell: bash
+        working-directory: dridh
+        env:
+          DRIDH_OPENCODE_BIN: ${{ github.workspace }}/scripts/ci/opencode-cli/node_modules/.bin/opencode
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/evidence"
+          uv run pytest -m "not live and not docker" -q -rs --junitxml "$RUNNER_TEMP/evidence/pytest-category-a.xml" \
+            | tee "$RUNNER_TEMP/evidence/pytest-category-a.log"
+
+      - name: Summarise test results
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/summarize_results.py junit "$RUNNER_TEMP/evidence/pytest-category-a.xml" \
+            --json "$RUNNER_TEMP/evidence/summary-python.json" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Scan test evidence for credential material
+        if: always()
+        shell: bash
+        run: python3 scripts/ci/scan_secrets.py --paths "$RUNNER_TEMP/evidence"
+
+      - name: Upload test evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: python-evidence
+          path: ${{ runner.temp }}/evidence
+          if-no-files-found: warn
+          retention-days: 30
+
+  plugin-tests:
+    name: "2 · Plugin tests (Category A)"
+    needs: [security, build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up the toolchain
+        uses: ./.github/actions/setup
+        with:
+          node: "true"
+
+      - name: Plugin tests (bridge client against the real and fake bridge; TUI part parses)
+        shell: bash
+        working-directory: dridh/opencode/plugins/dridh-bridge
+        env:
+          DRIDH_BIN: ${{ github.workspace }}/dridh/.venv/bin/dridh
+        run: |
+          set -euo pipefail
+          npm ci --no-audit --no-fund
+          npm run build
+          node --test --test-reporter=spec tests/bridge-client.test.mjs tests/tui-plugin.test.mjs | tee "$RUNNER_TEMP/plugin-node.log"
+
+      - name: Summarise plugin test results
+        if: always()
+        shell: bash
+        run: python3 scripts/ci/summarize_results.py spec "$RUNNER_TEMP/plugin-node.log" | tee -a "$GITHUB_STEP_SUMMARY"
+
+  packaging:
+    name: "2 · Installed wheel (Category A)"
+    needs: [security, build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.13"
+
+      - name: Download the wheel
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dridh-wheel
+          path: ${{ runner.temp }}/dist
+
+      - name: Install the wheel into a clean environment outside any checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/clean-venv"
+          "$RUNNER_TEMP/clean-venv/bin/python" -m pip install --quiet "$RUNNER_TEMP"/dist/dridh-*.whl
+          "$RUNNER_TEMP/clean-venv/bin/dridh" --version
+
+      - name: Installer dry run and bridge smoke test
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/smoke-config" "$RUNNER_TEMP/smoke-workspace"
+          "$RUNNER_TEMP/clean-venv/bin/dridh" install --config-dir "$RUNNER_TEMP/smoke-config" --dry-run
+          test ! -e "$RUNNER_TEMP/smoke-config/opencode.json"
+          test ! -d "$RUNNER_TEMP/smoke-config/agents"
+          printf '%s' '{"protocol_version":1,"request_id":"3f0d6f1e-2f7a-4c39-9f31-2a8c2f6f2a01","workspace_root":"'"$RUNNER_TEMP"'/smoke-workspace","operation":"runtime.ping","payload":{}}' \
+            | "$RUNNER_TEMP/clean-venv/bin/dridh" bridge | tee "$RUNNER_TEMP/bridge-ping.json"
+          grep -q '"status":"healthy"' "$RUNNER_TEMP/bridge-ping.json"
+
+  docker-e2e:
+    name: "3 · Docker full-system E2E (Category C)"
+    needs: [python-tests, plugin-tests, packaging]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Run the deterministic full-system E2E
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker version --format 'docker {{.Server.Version}}' | tee -a "$GITHUB_STEP_SUMMARY"
+          python3 dridh/tests/e2e/run_docker_e2e.py --evidence-dir "$RUNNER_TEMP/e2e" --run-id "gha-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            | tee "$RUNNER_TEMP/e2e-runner.log"
+
+      - name: Scan E2E evidence for credential material
+        if: always()
+        shell: bash
+        run: python3 scripts/ci/scan_secrets.py --paths "$RUNNER_TEMP/e2e"
+
+      - name: Upload E2E evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: docker-e2e-evidence
+          path: |
+            ${{ runner.temp }}/e2e
+            ${{ runner.temp }}/e2e-runner.log
+          if-no-files-found: warn
+          retention-days: 90
+
+  gate:
+    name: CI gate
+    needs: [changes, security, build, python-tests, plugin-tests, packaging, docker-e2e]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Evaluate the stages
+        shell: bash
+        env:
+          CODE: ${{ needs.changes.outputs.code }}
+          RESULTS: >-
+            changes=${{ needs.changes.result }} security=${{ needs.security.result }} build=${{ needs.build.result }}
+            python-tests=${{ needs.python-tests.result }} plugin-tests=${{ needs.plugin-tests.result }}
+            packaging=${{ needs.packaging.result }} docker-e2e=${{ needs.docker-e2e.result }}
+        run: |
+          set -uo pipefail
+          { echo "## CI gate"; echo; echo "| Stage job | Result |"; echo "|---|---|"; } >> "$GITHUB_STEP_SUMMARY"
+          failures=0
+          for pair in $RESULTS; do
+            name=${pair%%=*}; result=${pair#*=}
+            echo "| $name | $result |" >> "$GITHUB_STEP_SUMMARY"
+            if [ "$result" = success ]; then continue; fi
+            # A documentation-only change skips stages 1-3 on purpose.
+            if [ "$result" = skipped ] && [ "$CODE" = false ] && [ "$name" != changes ]; then continue; fi
+            failures=$((failures + 1))
+          done
+          if [ "$failures" -ne 0 ]; then echo "Gate FAILED: $failures job(s) did not succeed" | tee -a "$GITHUB_STEP_SUMMARY"; exit 1; fi
+          echo "Gate PASSED" | tee -a "$GITHUB_STEP_SUMMARY"

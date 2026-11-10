@@ -1,0 +1,17 @@
+.DS_Store
+*.pyc
+__pycache__/
+.pytest_cache/
+.venv/
+dridh/.venv/
+node_modules/
+dridh/opencode/plugins/**/node_modules/
+dridh/opencode/plugins/**/dist/
+dridh/dist/
+*.egg-info/
+.coverage
+htmlcov/
+.env
+.env.*
+!.env.example
+dridh/e2e-evidence/

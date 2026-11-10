@@ -1,0 +1,16 @@
+{
+  "schema": "dridh.document-contracts/1",
+  "bundle_version": "2.1.0",
+  "standards": {
+    "version": "2.1.0",
+    "file": "TABLE-STANDARDS.md",
+    "source": "TABLE-STANDARDS.md",
+    "sha256": "33effdca6001c8f80fe789219485fff6d651e03a7a0f5a8c7fb53b0feacb2dea"
+  },
+  "tdd_template": {
+    "version": "2.1.0",
+    "file": "Tech-Design-Template.md",
+    "source": "Tech-Design-Template.md",
+    "sha256": "892c33883baf2dafd1ae491378ec76a178729b57c19c260e0d7c1d8ccb6543b8"
+  }
+}

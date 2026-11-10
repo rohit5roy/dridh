@@ -1,0 +1,71 @@
+# Compatibility with the newest OpenCode release.
+#
+# Dridh supports OpenCode 2.2.5 or later (D-P18-03) while ci.yml tests the lock-pinned release. This workflow installs
+# the newest @opencode/cli and @opencode/plugin from npm and runs the plugin tests and the Category A suite against
+# them, so a breaking OpenCode release shows up before users meet it. It is never a merge gate: run it by hand, and it
+# runs once a month. When it passes on a newer release, move the lock in scripts/ci/opencode-cli (and the plugin's
+# @opencode/plugin) to that release in a normal pull request.
+
+name: OpenCode latest (compatibility)
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 4 1 * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: opencode-latest
+  cancel-in-progress: true
+
+jobs:
+  opencode-latest:
+    name: Plugin and Category A tests on the newest OpenCode
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up the toolchain and the locked Python dependencies
+        uses: ./.github/actions/setup
+        with:
+          node: "true"
+
+      - name: Install the newest OpenCode CLI (outside the lock file)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/opencode-latest"
+          cd "$RUNNER_TEMP/opencode-latest"
+          npm init -y >/dev/null
+          npm install --no-audit --no-fund @opencode/cli@latest
+          version="$(./node_modules/.bin/opencode --version)"
+          echo "OpenCode under test: $version" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Build the plugin against the newest plugin SDK and run its tests
+        shell: bash
+        working-directory: dridh/opencode/plugins/dridh-bridge
+        env:
+          DRIDH_BIN: ${{ github.workspace }}/dridh/.venv/bin/dridh
+        run: |
+          set -euo pipefail
+          npm ci --no-audit --no-fund
+          npm install --no-audit --no-fund --no-save @opencode/plugin@latest
+          echo "Plugin SDK under test: $(node -p "require('@opencode/plugin/package.json').version")" | tee -a "$GITHUB_STEP_SUMMARY"
+          npm run build
+          node --test --test-reporter=spec tests/bridge-client.test.mjs tests/tui-plugin.test.mjs
+
+      - name: Category A tests against the newest OpenCode CLI
+        shell: bash
+        working-directory: dridh
+        env:
+          DRIDH_OPENCODE_BIN: ${{ runner.temp }}/opencode-latest/node_modules/.bin/opencode
+        run: |
+          set -euo pipefail
+          uv run python scripts/build_assets.py
+          uv run pytest -m "not live and not docker" -q -rs

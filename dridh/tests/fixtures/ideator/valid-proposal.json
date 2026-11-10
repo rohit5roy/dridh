@@ -1,0 +1,52 @@
+{
+  "title": "Order Intake",
+  "problem_statement": "Customers need a reliable way to submit orders and receive clear outcomes.",
+  "scope": "Capture an order submission and report its recorded status.",
+  "out_of_scope": [
+    "Fulfilment and shipping"
+  ],
+  "assumptions": [
+    "The customer has already selected the items to order."
+  ],
+  "constraints": [
+    "A rejected order must not be recorded as accepted."
+  ],
+  "priority": "HIGH",
+  "actors": [
+    {
+      "name": "Customer",
+      "type": "USER",
+      "status": "EXISTING",
+      "description": "Submits an order and receives its outcome."
+    }
+  ],
+  "use_cases": [
+    {
+      "title": "Submit an order",
+      "primary_actor": "Customer",
+      "trigger": "The customer confirms the order.",
+      "category": "Core",
+      "objective": "Record an accepted order or explain why it was rejected.",
+      "priority": "HIGH",
+      "flows": [
+        {
+          "type": "SUCCESS",
+          "subject": "Customer confirms the order",
+          "actor": "Customer",
+          "action": "Submit the order",
+          "result": "The order is recorded as accepted",
+          "priority": "HIGH"
+        },
+        {
+          "type": "EXCEPTION",
+          "subject": "The order fails validation",
+          "actor": "Customer",
+          "action": "Correct the reported information",
+          "result": "The order is not recorded until validation succeeds",
+          "priority": "HIGH",
+          "origin_step": 1
+        }
+      ]
+    }
+  ]
+}

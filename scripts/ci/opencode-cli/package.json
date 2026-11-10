@@ -1,0 +1,15 @@
+{
+  "name": "dridh-ci-opencode-cli",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Pinned OpenCode V2 CLI for Dridh Linux CI. Exact version; package-lock integrity applies to every platform binary.",
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "dependencies": {
+    "@opencode/cli": "2.2.6"
+  },
+  "allowScripts": {
+    "@opencode/cli@2.2.6": true
+  }
+}

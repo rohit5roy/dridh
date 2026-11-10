@@ -1,0 +1,126 @@
+# Contributor License Agreement check (CLA.md).
+#
+# Every pull request author must accept CLA.md once, by commenting the sentence below on their pull request. Accepted
+# signatures are stored in signatures/cla.json on the `cla-signatures` branch (create that branch once from main).
+# The maintainer and bots are exempt.
+#
+# Safety: pull_request_target runs with this repository's token, so this workflow must never check out or run code
+# from the pull request. It only reads comments and writes the signature file.
+#
+# The check is implemented with actions/github-script (Node 24) because the contributor-assistant/github-action
+# releases still run on Node 20.
+name: CLA
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request_target:
+    types: [opened, synchronize]
+
+permissions:
+  contents: write
+  pull-requests: write
+  statuses: write
+
+concurrency:
+  group: cla-signatures
+  cancel-in-progress: false
+
+jobs:
+  cla:
+    name: CLA signed
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    if: >-
+      github.event_name == 'pull_request_target' ||
+      (github.event.issue.pull_request &&
+       (github.event.comment.body == 'recheck' ||
+        github.event.comment.body == 'I have read the Dridh CLA and I hereby accept it'))
+    steps:
+      - name: Check the CLA
+        uses: actions/github-script@d746ffe35508b1917358783b479e04febd2b8f71 # v9.0.0
+        with:
+          script: |
+            const allowlist = ['rohit5roy', 'dependabot[bot]', 'github-actions[bot]'];
+            const phrase = 'I have read the Dridh CLA and I hereby accept it';
+            const { owner, repo } = context.repo;
+            const path = 'signatures/cla.json';
+            const branch = 'cla-signatures';
+            const isComment = context.eventName === 'issue_comment';
+            const prNumber = isComment ? context.payload.issue.number : context.payload.pull_request.number;
+
+            const { data: pr } = await github.rest.pulls.get({ owner, repo, pull_number: prNumber });
+            const headSha = pr.head.sha;
+
+            let file;
+            try {
+              const { data } = await github.rest.repos.getContent({ owner, repo, path, ref: branch });
+              file = {
+                sha: data.sha,
+                signedContributors: JSON.parse(Buffer.from(data.content, 'base64').toString('utf8')).signedContributors,
+              };
+            } catch (error) {
+              if (error.status !== 404) throw error;
+              file = { sha: undefined, signedContributors: [] };
+            }
+            const signed = new Set(file.signedContributors.map((s) => s.name));
+
+            if (isComment && context.payload.comment.body === phrase) {
+              const who = context.payload.comment.user.login;
+              if (!signed.has(who) && !allowlist.includes(who)) {
+                file.signedContributors.push({
+                  name: who,
+                  id: context.payload.comment.user.id,
+                  comment_id: context.payload.comment.id,
+                  created_at: new Date().toISOString(),
+                  repoId: context.payload.repository.id,
+                  pullRequestNo: prNumber,
+                });
+                await github.rest.repos.createOrUpdateFileContents({
+                  owner,
+                  repo,
+                  path,
+                  branch,
+                  sha: file.sha,
+                  message: `CLA accepted by ${who} in #${prNumber}`,
+                  content: Buffer.from(JSON.stringify({ signedContributors: file.signedContributors }, null, 2) + '\n').toString('base64'),
+                });
+                signed.add(who);
+                core.info(`${who} accepted the CLA`);
+              }
+            }
+
+            const commits = await github.paginate(github.rest.pulls.listCommits, { owner, repo, pull_number: prNumber, per_page: 100 });
+            const unsigned = new Set();
+            for (const c of commits) {
+              const login = c.author?.login;
+              if (!login) {
+                unsigned.add(`${c.commit.author.email} (commit ${c.sha.slice(0, 7)} is not linked to a GitHub account)`);
+              } else if (!allowlist.includes(login) && !signed.has(login)) {
+                unsigned.add(login);
+              }
+            }
+
+            const state = unsigned.size === 0 ? 'success' : 'failure';
+            const description = unsigned.size === 0 ? 'All contributors have accepted the Dridh CLA.' : 'Waiting for the Dridh CLA to be accepted.';
+            await github.rest.repos.createCommitStatus({ owner, repo, sha: headSha, state, context: 'CLA signed', description });
+
+            if (unsigned.size > 0) {
+              if (context.eventName === 'pull_request_target' && context.payload.action === 'opened') {
+                await github.rest.issues.createComment({
+                  owner,
+                  repo,
+                  issue_number: prNumber,
+                  body: [
+                    'Thank you for your contribution. Dridh is licensed under the AGPL-3.0 and may also be offered under commercial licences, so every contributor accepts the [Contributor License Agreement](https://github.com/' + owner + '/' + repo + '/blob/main/CLA.md) once. You keep the copyright in your work. To accept it, comment the sentence below on this pull request.',
+                    '',
+                    '> ' + phrase,
+                    '',
+                    'Contributors who still need to accept: ' + [...unsigned].filter((u) => !u.includes(' ')).map((u) => '@' + u).join(', '),
+                  ].join('\n'),
+                });
+              }
+              core.setFailed(`CLA not accepted by: ${[...unsigned].join(', ')}`);
+            } else {
+              core.info('All contributors have accepted the CLA.');
+            }

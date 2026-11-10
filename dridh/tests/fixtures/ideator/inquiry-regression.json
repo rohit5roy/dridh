@@ -1,0 +1,31 @@
+{
+  "schema": "dridh.inquiry",
+  "schema_version": 1,
+  "objective": "Build an order intake service",
+  "questions": [
+    {
+      "question_id": "Q-001",
+      "topic": "problem",
+      "order": 1,
+      "question": "What problem?",
+      "answer": "Order intake is unreliable.",
+      "source": "user",
+      "unresolved": false,
+      "actor_refs": [],
+      "flow_refs": []
+    },
+    {
+      "question_id": "Q-002",
+      "topic": "actors",
+      "order": 2,
+      "question": "Who interacts?",
+      "answer": "Customer.",
+      "source": "user",
+      "unresolved": false,
+      "actor_refs": [
+        "ACT-01"
+      ],
+      "flow_refs": []
+    }
+  ]
+}

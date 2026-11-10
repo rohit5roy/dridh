@@ -1,0 +1,48 @@
+/* The animated flow (assets/flow.js). Each page sets the --flow-* variables to its own palette and shape. */
+.flow { --flow-radius: 8px; }
+.flow-steps { margin: 0; padding-left: 1.2em; }
+.flow-steps li { margin: 4px 0; }
+.flow.flow-ready .flow-steps { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+.flow-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 24px; margin-bottom: 20px; }
+.flow-track { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.flow-track li { padding: 4px 12px; border: 1px solid var(--flow-line); border-radius: var(--flow-pill, 999px); color: var(--flow-muted); font-size: 13px; transition: background-color 200ms ease, color 200ms ease, border-color 200ms ease; }
+.flow-track li.is-done { color: var(--flow-text); border-color: var(--flow-text); }
+.flow-track li.is-now { background: var(--flow-accent); border-color: var(--flow-accent); color: var(--flow-accent-ink); }
+.flow-controls { display: flex; gap: 8px; }
+.flow-btn { padding: 8px 16px; border: 1px solid var(--flow-line); border-radius: var(--flow-pill, 999px); background: transparent; color: var(--flow-text); font: inherit; font-size: 13px; cursor: pointer; transition: transform 150ms cubic-bezier(.23, 1, .32, 1); }
+.flow-btn:hover { border-color: var(--flow-text); }
+.flow-btn:active { transform: scale(.97); }
+
+.flow-stage { position: relative; }
+.flow-svg { display: block; width: 100%; height: auto; overflow: visible; }
+.flow-tall { display: none; max-width: 420px; margin: 0 auto; }
+.flow-path { fill: none; stroke: var(--flow-line); stroke-width: 2; stroke-linejoin: round; transition: stroke 200ms ease; }
+.flow-path.is-loop { stroke: var(--flow-loop); stroke-dasharray: 6 6; }
+.flow-path.is-lit { stroke: var(--flow-accent); }
+.flow-arrow { fill: var(--flow-line); }
+.flow-shape { fill: var(--flow-node-bg); stroke: var(--flow-line); stroke-width: 1.5; rx: var(--flow-radius); transition: stroke-width 200ms ease, fill 200ms ease; }
+.flow-node.is-check .flow-shape { stroke: var(--flow-check); }
+.flow-node.is-you .flow-shape, .flow-node.is-decide .flow-shape { stroke: var(--flow-you); fill: var(--flow-you-bg); }
+.flow-node.is-active .flow-shape { stroke-width: 3.5; }
+.flow-text { fill: var(--flow-text); font-size: 15px; font-weight: 500; }
+.flow-label { fill: var(--flow-muted); font-size: 12.5px; }
+.flow-label.is-loop { fill: var(--flow-loop-text, var(--flow-loop)); }
+.flow-token { fill: var(--flow-accent); stroke: var(--flow-node-bg); stroke-width: 3; transition: opacity 200ms ease; }
+.flow-token.is-gone { opacity: 0; }
+
+.flow-caption { min-height: 3.3em; margin: 16px 0 0; font-size: 18px; line-height: 1.55; color: var(--flow-text); }
+.flow-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 8px 0 0; font-size: 13px; color: var(--flow-muted); }
+.flow-legend .key { display: inline-block; width: 14px; height: 14px; margin-left: 8px; border: 2px solid; border-radius: 3px; vertical-align: -2px; }
+.flow-legend .key:first-child { margin-left: 0; }
+.flow-legend .key-you { border-color: var(--flow-you); background: var(--flow-you-bg); }
+.flow-legend .key-check { border-color: var(--flow-check); }
+.flow-legend .key-loop { width: 18px; height: 0; border-width: 2px 0 0; border-style: dashed; border-color: var(--flow-loop); border-radius: 0; }
+.flow-note { margin: 12px 0 0; font-size: 14px; color: var(--flow-muted); }
+
+@media (max-width: 640px) {
+  .flow-wide { display: none; }
+  .flow-tall { display: block; }
+  .flow-caption { font-size: 16px; min-height: 4.7em; }
+}
+@media (prefers-reduced-motion: reduce) { .flow * { transition-duration: 0ms !important; } }

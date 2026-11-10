@@ -1,0 +1,70 @@
+# Shared toolchain setup for Dridh workflows. Versions are pinned here once; caches are keyed on the lock files, so a
+# changed lock always starts clean. Run actions/checkout before using this action.
+name: Dridh toolchain
+description: Python 3.13, uv and (optionally) Node.js 24 with the pinned OpenCode CLI, with dependency caches.
+
+inputs:
+  node:
+    description: Set up Node.js and npm.
+    default: "false"
+  opencode:
+    description: Install the lock-pinned OpenCode CLI (needs node).
+    default: "false"
+  sync:
+    description: Install the locked Python dependencies (uv sync --frozen in dridh/).
+    default: "true"
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+      with:
+        python-version: "3.13"
+
+    - name: Set up uv
+      uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      with:
+        version: "0.13.7"
+        enable-cache: true
+        cache-dependency-glob: dridh/uv.lock
+
+    - name: Set up Node.js
+      if: inputs.node == 'true'
+      uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      with:
+        node-version: "24.22.2"
+        cache: npm
+        cache-dependency-path: |
+          dridh/opencode/plugins/dridh-bridge/package-lock.json
+          scripts/ci/opencode-cli/package-lock.json
+
+    - name: Check the toolchain versions
+      shell: bash
+      run: |
+        set -euo pipefail
+        python3 --version | grep -q "^Python 3\.13\."
+        uv --version | grep -q " 0\.13\.7"
+        if [ "${{ inputs.node }}" = "true" ]; then test "$(node --version)" = "v24.22.2"; fi
+        {
+          echo "runner=${ImageOS:-unknown}-${ImageVersion:-unknown} commit=$GITHUB_SHA"
+          echo "$(python3 --version) | $(uv --version)$( [ "${{ inputs.node }}" = "true" ] && echo " | node $(node --version)")"
+        } >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Install the pinned OpenCode CLI
+      if: inputs.opencode == 'true'
+      shell: bash
+      working-directory: scripts/ci/opencode-cli
+      run: |
+        set -euo pipefail
+        npm ci --no-audit --no-fund
+        test "$(./node_modules/.bin/opencode --version)" = "opencode v2.2.6"
+
+    - name: Install the locked Python dependencies
+      if: inputs.sync == 'true'
+      shell: bash
+      working-directory: dridh
+      run: |
+        set -euo pipefail
+        uv lock --check
+        uv sync --frozen

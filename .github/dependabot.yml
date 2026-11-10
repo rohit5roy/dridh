@@ -1,0 +1,15 @@
+# Keep the GitHub Actions used by the workflows and the shared setup action at their latest releases. Actions stay
+# pinned to commit SHAs; Dependabot updates the SHA and the version comment together, in one grouped pull request.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directories:
+      - "/"
+      - "/.github/actions/setup"
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: "CI"

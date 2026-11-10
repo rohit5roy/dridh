@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dridh — steady hands for AI-built software</title>
+<meta name="description" content="Dridh runs a feature through fixed stages inside OpenCode: use cases, technical design, plan, execution, delivery. Each produces a validated document, and none opens the next stage until you approve it.">
+<link rel="icon" href="assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="site.css">
+<link rel="stylesheet" href="assets/flow.css">
+<script type="module" src="assets/site.js"></script>
+<script type="module" src="assets/flow.js"></script>
+</head>
+<body>
+<header class="top">
+  <div class="wrap row">
+    <a class="logo" href="#top">dridh<span>_</span></a>
+    <nav>
+      <a class="hide-sm" href="#board">how it works</a>
+      <a class="hide-sm" href="#start">get started</a>
+      <a class="hide-sm" href="#faq">faq</a>
+      <a class="strong gh-link" href="https://github.com/rohit5roy/dridh"><svg class="gh" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" fill="currentColor"><path d="M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.37A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z"/></svg>github</a>
+    </nav>
+  </div>
+</header>
+
+<main id="top">
+  <section class="hero">
+    <div class="wrap">
+      <div class="meta">v0.7.9 · harness for opencode · agpl-3.0</div>
+      <h1><span>Steady hands</span> for AI&#8209;built software.</h1>
+      <p class="lede">Dridh runs a feature through fixed stages inside <a href="https://opencode.ai">OpenCode</a>: use cases, technical design, plan, execution, delivery. Each produces a validated document, and none opens the next stage until you approve it.</p>
+      <div class="install">
+        <code><span class="dim">$ </span>curl -fsSL https://github.com/rohit5roy/dridh/releases/latest/download/install.sh | bash</code>
+        <button type="button" data-copy="curl -fsSL https://github.com/rohit5roy/dridh/releases/latest/download/install.sh | bash">copy</button>
+      </div>
+      <p class="fineprint">Linux or macOS · OpenCode 2.2.5 or later · then type /dridh in OpenCode</p>
+    </div>
+  </section>
+
+  <section class="spec name" aria-labelledby="name-title">
+    <div class="wrap cols">
+      <h2 class="label" id="name-title">why “dridh”</h2>
+      <div class="name-card">
+        <span class="dev" lang="hi">दृढ़</span>
+        <dl>
+          <div><dt>term</dt><dd lang="sa-Latn"><i>dṛḍha</i> · adjective · Sanskrit, Hindi</dd></div>
+          <div><dt>means</dt><dd>firm · strong · resolute · determined · steady</dd></div>
+          <div><dt>here</dt><dd>It is what the harness is for: the stages hold firm, the process stays steady, and the decision to move forward rests with a resolute person, not with the agent.</dd></div>
+        </dl>
+      </div>
+    </div>
+  </section>
+
+  <section class="wrap boardwrap" id="board">
+    <div class="board-title">
+      <h2>How it works.</h2>
+      <span>Stage by stage: where it loops back, and where it waits for you.</span>
+    </div>
+    <div class="flow board" data-flow>
+      <ol class="flow-steps">
+          <li>You describe the feature in plain words.</li>
+          <li>Use cases: the Coordinator asks you questions, writes the use cases, checks they are complete, and waits for your approval.</li>
+          <li>Design: the same loop for the technical design. If the check finds something missing, it fixes the document and checks again.</li>
+          <li>Plan: the work is split into small stories. If you ask for changes, the plan goes back to be revised.</li>
+          <li>Build: each story is built on its own and its tests run. A failing story is repaired, up to three tries, before it asks you. Finished stories wait for you in batches.</li>
+          <li>Done: you mark the feature complete. Pull requests are optional; Dridh never merges.</li>
+        </ol>
+      <p class="flow-note">Change an approved document later and it goes back to you for review.</p>
+    </div>
+  </section>
+
+  <section class="spec">
+    <div class="wrap cols">
+      <h2 class="label">what you get</h2>
+      <div class="table two">
+        <article><h3>Human-only approvals</h3><p>Approvals, checklist ticks, starting a run and completing a feature are yours. You do them from Dridh’s panel in OpenCode, and each approval ends with a confirmation you type. No agent can do them.</p></article>
+        <article><h3>Validated documents</h3><p>Use cases, technical designs and plans are checked against versioned standards. An approval is bound to the exact revision you read.</p></article>
+        <article><h3>Isolated execution</h3><p>One worktree and branch per story, its tests in a fresh container with its own network. Stories run in parallel and stop at checkpoint lots for your verdict.</p></article>
+        <article><h3>Code Reacher</h3><p>A local index of your code: search by meaning with a local embedding model, call graphs and API endpoints for Python, TypeScript, JavaScript and Java.</p></article>
+        <article><h3>Recovery built in</h3><p>Crashed runs resume, dirty worktrees are saved before cleanup, and every state change is audited. Sixteen recovery scenarios are covered by tests.</p></article>
+        <article><h3>Inside OpenCode</h3><p>A sidebar and panels in OpenCode's terminal interface: documents rendered with glow, Mermaid diagrams drawn as text, execution lots with diffs.</p></article>
+      </div>
+    </div>
+  </section>
+
+  <section class="spec">
+    <div class="wrap cols">
+      <h2 class="label">in opencode</h2>
+      <div class="shots">
+        <figure class="wide"><a href="assets/img/opencode-session-sidebar.png"><img src="assets/img/opencode-session-sidebar.png" width="1400" height="838" loading="lazy" alt="An OpenCode session with the Dridh Coordinator on the left and the Dridh sidebar on the right: stage 8 of 11, the documents, the open plan checklist and the next step"></a><figcaption>The Dridh sidebar in an OpenCode session.</figcaption></figure>
+        <figure><a href="assets/img/opencode-panel-reviewer.png"><img src="assets/img/opencode-panel-reviewer.png" width="1400" height="838" loading="lazy" alt="The Dridh document reviewer beside the OpenCode conversation, showing the generated central plan index"></a><figcaption>The plan, beside the conversation.</figcaption></figure>
+        <figure><a href="assets/img/reviewer-mermaid.png"><img src="assets/img/reviewer-mermaid.png" width="1400" height="756" loading="lazy" alt="The full-screen reviewer showing a technical design with its outline, validation and review status, and a Mermaid diagram drawn as text"></a><figcaption>A technical design, its diagram drawn as text.</figcaption></figure>
+      </div>
+    </div>
+  </section>
+
+  <section class="spec" id="start">
+    <div class="wrap cols">
+      <h2 class="label">get started</h2>
+      <ol class="steps">
+        <li><span class="n">01</span><div><code>curl -fsSL https://github.com/rohit5roy/dridh/releases/latest/download/install.sh | bash</code><p>Install. It checks OpenCode first and shows its plan, then adds Dridh to OpenCode, backing up every file it changes.</p></div></li>
+        <li><span class="n">02</span><div><code>/dridh</code><p>In OpenCode, in your project: press <kbd>Tab</kbd> to switch to the Dridh Coordinator agent, type /dridh, and tell it what you want to build.</p></div></li>
+      </ol>
+    </div>
+  </section>
+
+  <section class="spec" id="faq">
+    <div class="wrap cols">
+      <h2 class="label">faq</h2>
+      <div class="faq">
+        <details><summary>Which model does Dridh use?</summary><p>The one OpenCode is set to. To pin a model for a project, set models.provider and models.default in .opencode/dridh/dridh.yaml.</p></details>
+        <details><summary>Can an agent approve something by mistake?</summary><p>No. Approvals need an interactive terminal and the exact confirmation text. Scripts, pipes and agents are refused, and no bridge operation approves, ticks a checklist, starts a run or completes a feature.</p></details>
+        <details><summary>What leaves my machine?</summary><p>Dridh's state, documents and code index stay in your project. Model calls go to whichever provider OpenCode uses. The embedding model is downloaded once. Delivery to GitHub is off unless you turn it on.</p></details>
+        <details><summary>Do I need Docker?</summary><p>No, but it is used when present: each story's tests then run in their own container. Without Docker they run on your machine, and the evidence says so.</p></details>
+        <details><summary>Which platforms are supported?</summary><p>Linux and macOS with OpenCode 2.2.5 or later. Windows is not supported. Dridh is pre-1.0.</p></details>
+      </div>
+    </div>
+  </section>
+</main>
+
+<section class="maker spec" aria-labelledby="maker-title">
+  <div class="wrap maker-inner">
+    <img class="maker-photo" src="assets/img/rohit-roy.png" width="96" height="96" alt="Rohit Roy's GitHub avatar: an illustrated lion in a hoodie at a laptop">
+    <div>
+      <div class="maker-kicker">made by</div>
+      <h2 class="maker-name" id="maker-title">Rohit Roy</h2>
+      <ul class="maker-links">
+          <li><a href="https://rohitroy.work">rohitroy.work</a></li>
+          <li><a class="gh-link" href="https://github.com/rohit5roy"><svg class="gh" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" fill="currentColor"><path d="M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.37A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z"/></svg>rohit5roy</a></li>
+          <li><a href="https://www.linkedin.com/in/rohit--roy/">LinkedIn</a></li>
+          <li><a href="https://x.com/rohit7roy">X @rohit7roy</a></li>
+          <li><a href="https://medium.com/@rohit7roy">Medium</a></li>
+        </ul>
+    </div>
+  </div>
+</section>
+
+<footer class="foot">
+  <div class="wrap row"><span>© 2026 rohit roy</span><span class="links"><a class="gh-link" href="https://github.com/rohit5roy/dridh"><svg class="gh" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" fill="currentColor"><path d="M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.37A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z"/></svg>github</a><a href="https://github.com/rohit5roy/dridh/releases">releases</a><a href="https://github.com/rohit5roy/dridh/blob/main/SECURITY.md">security</a><a href="https://github.com/rohit5roy/dridh/blob/main/LICENSE">licence: agpl-3.0</a></span></div>
+</footer>
+</body>
+</html>

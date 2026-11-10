@@ -1,0 +1,227 @@
+# Dridh release: approval-gated, tag-based, and the version always moves forward.
+#
+# Start a release in either of two ways:
+#   - Actions -> Release -> Run workflow on main, choosing "rc" (publish the current X.Y.ZrcN) or "stable"
+#     (publish X.Y.Z; main may carry X.Y.ZrcN or X.Y.Z). The workflow creates the tag vX.Y.Z[rcN] itself.
+#   - push a tag vX.Y.Z[rcN] whose commit carries exactly that version in dridh/src/dridh/__init__.py.
+#
+# Then:
+#   1 plan     the person who started it is an approver (repository variable RELEASE_APPROVERS, default: the owner);
+#              CI passed ("CI gate") for that exact commit; the version is newer than every earlier release
+#   2 build    wheel with the plugin inside, checksum, smoke test through install.sh against a scratch OpenCode setup
+#   3 publish  waits for approval (environment "release": add yourself as a required reviewer in Settings ->
+#              Environments), then tags, publishes the GitHub Release (a pre-release for rc) and moves main to the
+#              next version (scripts/version.py: 0.7.9 -> 0.8.0rc1 -> 0.8.0rc2 ... -> 0.8.0 -> 0.9.0rc1)
+#
+# Commits made here (a stable promotion "Release X.Y.Z" and the "Start <next>" bump) are by github-actions[bot]. If
+# main is protected, allow GitHub Actions to push to it, or the bump step fails after the release is published (then
+# set the next version by hand: python3 dridh/scripts/version.py next <released>).
+
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      kind:
+        description: "rc: publish the current release candidate; stable: publish the final X.Y.Z"
+        type: choice
+        options: [rc, stable]
+        default: rc
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    name: "1 · Plan and verify"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      checks: read
+    outputs:
+      version: ${{ steps.plan.outputs.version }}
+      sha: ${{ steps.plan.outputs.sha }}
+      prerelease: ${{ steps.plan.outputs.prerelease }}
+      promote: ${{ steps.plan.outputs.promote }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Work out the release and check it
+        id: plan
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          KIND: ${{ inputs.kind }}
+          REF: ${{ github.ref }}
+          REF_NAME: ${{ github.ref_name }}
+          ACTOR: ${{ github.triggering_actor }}
+          APPROVERS: ${{ vars.RELEASE_APPROVERS || github.repository_owner }}
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+          case ",${APPROVERS// /}," in *",$ACTOR,"*) ;; *) fail "$ACTOR may not start a release (RELEASE_APPROVERS: $APPROVERS)";; esac
+          sha=$(git rev-parse HEAD)
+          current=$(python3 dridh/scripts/version.py)
+          if [ "$EVENT" = workflow_dispatch ]; then
+            [ "$REF" = refs/heads/main ] || fail "run the release from main, not $REF"
+            version=$(python3 dridh/scripts/version.py release "$KIND" 2>&1) || fail "$version"
+            if git rev-parse -q --verify "refs/tags/v$version" >/dev/null; then fail "v$version is already released"; fi
+            mapfile -t others < <(git tag -l 'v*')
+          else
+            version=${REF_NAME#v}
+            [ "$current" = "$version" ] || fail "tag $REF_NAME but dridh/src/dridh/__init__.py says $current at that commit"
+            mapfile -t others < <(git tag -l 'v*' | grep -vx "$REF_NAME" || true)
+          fi
+          VERSION_CHECK=$(cd dridh && python3 -c "import runpy,sys; m=runpy.run_path('scripts/version.py'); e=m['check_newer'](sys.argv[1], sys.argv[2:]); print(e or '')" "$version" ${others[@]+"${others[@]}"})
+          [ -z "$VERSION_CHECK" ] || fail "$VERSION_CHECK"
+          gate=$(gh api "repos/$GITHUB_REPOSITORY/commits/$sha/check-runs?check_name=CI%20gate&filter=latest" --jq '[.check_runs[].conclusion] | first // "missing"')
+          [ "$gate" = success ] || fail "CI gate for $sha is '$gate'; release only a commit whose CI passed"
+          case "$version" in *rc*) prerelease=true ;; *) prerelease=false ;; esac
+          promote=false; [ "$version" = "$current" ] || promote=true
+          { echo "version=$version"; echo "sha=$sha"; echo "prerelease=$prerelease"; echo "promote=$promote"; } >> "$GITHUB_OUTPUT"
+          {
+            echo "## Release plan"
+            echo "| | |"; echo "|---|---|"
+            echo "| Version | $version $( [ "$prerelease" = true ] && echo '(release candidate)') |"
+            echo "| Commit | $sha (CI gate: success) |"
+            echo "| Started by | $ACTOR |"
+            echo "| main afterwards | $(python3 dridh/scripts/version.py next "$version") |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  build:
+    name: "2 · Build and smoke test"
+    needs: plan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout the release commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ needs.plan.outputs.sha }}
+
+      - name: Set up the toolchain
+        uses: ./.github/actions/setup
+        with:
+          node: "true"
+          opencode: "true"
+          sync: "false"
+
+      - name: Set the release version (stable promotion only)
+        if: needs.plan.outputs.promote == 'true'
+        shell: bash
+        run: python3 dridh/scripts/version.py set "${{ needs.plan.outputs.version }}"
+
+      - name: Build the release wheel
+        shell: bash
+        run: |
+          set -euo pipefail
+          scripts/build_release.sh "$RUNNER_TEMP/dist"
+          test -f "$RUNNER_TEMP/dist/dridh-${{ needs.plan.outputs.version }}-py3-none-any.whl"
+
+      - name: Smoke test the wheel with install.sh
+        shell: bash
+        env:
+          VERSION: ${{ needs.plan.outputs.version }}
+        run: |
+          set -euo pipefail
+          export PATH="$PWD/scripts/ci/opencode-cli/node_modules/.bin:$PATH"
+          export UV_TOOL_DIR="$RUNNER_TEMP/tools" UV_TOOL_BIN_DIR="$RUNNER_TEMP/bin" OPENCODE_CONFIG_DIR="$RUNNER_TEMP/opencode"
+          mkdir -p "$OPENCODE_CONFIG_DIR" && echo '{}' > "$OPENCODE_CONFIG_DIR/opencode.json"
+          ./install.sh --wheel "$RUNNER_TEMP/dist/dridh-$VERSION-py3-none-any.whl"
+          "$RUNNER_TEMP/bin/dridh" --version | grep -q "dridh $VERSION"
+          "$RUNNER_TEMP/bin/dridh" doctor --json | python3 -c "import json,sys; d=json.load(sys.stdin); bad=[c['id'] for c in d['checks'] if c['id'] in ('opencode','runtime','plugin-entry','default-agent') and c['status']!='PASS']; print(bad); sys.exit(1 if bad else 0)"
+          "$RUNNER_TEMP/bin/dridh" uninstall
+          test "$(cat "$OPENCODE_CONFIG_DIR/opencode.json")" = "{}"
+
+      - name: Upload the release files
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-files
+          path: |
+            ${{ runner.temp }}/dist/dridh-*.whl
+            ${{ runner.temp }}/dist/dridh-*.whl.sha256
+          if-no-files-found: error
+          retention-days: 30
+
+  publish:
+    name: "3 · Approve, publish and move the version forward"
+    needs: [plan, build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: release
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.plan.outputs.version }}
+      SHA: ${{ needs.plan.outputs.sha }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Download the release files
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-files
+          path: ${{ runner.temp }}/dist
+
+      - name: Tag the release
+        shell: bash
+        env:
+          EVENT: ${{ github.event_name }}
+          PROMOTE: ${{ needs.plan.outputs.promote }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if [ "$EVENT" != workflow_dispatch ]; then echo "Tag v$VERSION was pushed; nothing to tag."; exit 0; fi
+          [ "$(git rev-parse HEAD)" = "$SHA" ] || { echo "::error::main moved after the release was planned; start the release again"; exit 1; }
+          if [ "$PROMOTE" = true ]; then
+            python3 dridh/scripts/version.py set "$VERSION"
+            git commit -qam "Release $VERSION"
+          fi
+          git tag -a "v$VERSION" -m "Dridh $VERSION"
+          git push --atomic origin HEAD:main "v$VERSION"
+
+      - name: Publish the GitHub Release
+        shell: bash
+        env:
+          PRERELEASE: ${{ needs.plan.outputs.prerelease }}
+        run: |
+          set -euo pipefail
+          flags=(--title "Dridh $VERSION" --generate-notes --verify-tag)
+          if [ "$PRERELEASE" = true ]; then flags+=(--prerelease); else flags+=(--latest); fi
+          gh release create "v$VERSION" "${flags[@]}" \
+            "$RUNNER_TEMP/dist/dridh-$VERSION-py3-none-any.whl" "$RUNNER_TEMP/dist/dridh-$VERSION-py3-none-any.whl.sha256" install.sh
+          echo "Published v$VERSION." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Move main to the next version
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch -q origin main && git checkout -q -B main origin/main
+          current=$(python3 dridh/scripts/version.py)
+          next=$(python3 dridh/scripts/version.py next "$VERSION")
+          if [ "$current" != "$VERSION" ]; then
+            echo "main already carries $current (not $VERSION); leaving it." | tee -a "$GITHUB_STEP_SUMMARY"; exit 0
+          fi
+          python3 dridh/scripts/version.py set "$next"
+          git commit -qam "Start $next (after releasing $VERSION)"
+          git push origin HEAD:main || { echo "::error::v$VERSION is published, but main could not be moved to $next (protected?). Set it by hand."; exit 1; }
+          echo "main now carries $next." >> "$GITHUB_STEP_SUMMARY"

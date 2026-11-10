@@ -1,0 +1,41 @@
+{
+ "total_count": 4,
+ "check_runs": [
+  {
+   "id": 128794321266,
+   "name": "gate",
+   "status": "completed",
+   "conclusion": "failure",
+   "started_at": "2026-11-08T16:42:38Z",
+   "completed_at": "2026-11-08T16:42:43Z",
+   "html_url": "https://github.com/example/app/runs/128794321266"
+  },
+  {
+   "id": 128794321178,
+   "name": "build",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-08T16:42:38Z",
+   "completed_at": "2026-11-08T16:42:44Z",
+   "html_url": "https://github.com/example/app/runs/128794321178"
+  },
+  {
+   "id": 128794310522,
+   "name": "gate",
+   "status": "completed",
+   "conclusion": "failure",
+   "started_at": "2026-11-08T16:42:36Z",
+   "completed_at": "2026-11-08T16:42:40Z",
+   "html_url": "https://github.com/example/app/runs/128794310522"
+  },
+  {
+   "id": 128794310330,
+   "name": "build",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-08T16:42:35Z",
+   "completed_at": "2026-11-08T16:42:39Z",
+   "html_url": "https://github.com/example/app/runs/128794310330"
+  }
+ ]
+}
