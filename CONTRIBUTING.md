@@ -1,5 +1,7 @@
 # Contributing
 
+Everyone taking part in this project follows the [Code of Conduct](CODE_OF_CONDUCT.md).
+
 ## Licence and the CLA
 
 Dridh is licensed under the AGPL-3.0 and may also be offered under commercial licences. Before your first pull request
