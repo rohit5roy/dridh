@@ -81,7 +81,7 @@ jobs:
             mapfile -t others < <(git tag -l 'v*')
           else
             version=${REF_NAME#v}
-            [ "$current" = "$version" ] || fail "tag $REF_NAME but dridh/src/dridh/__init__.py says $current at that commit"
+            [ "${current%%rc*}" = "${version%%rc*}" ] || fail "tag $REF_NAME but dridh/src/dridh/__init__.py says $current at that commit"
             mapfile -t others < <(git tag -l 'v*' | grep -vx "$REF_NAME" || true)
           fi
           VERSION_CHECK=$(cd dridh && python3 -c "import runpy,sys; m=runpy.run_path('scripts/version.py'); e=m['check_newer'](sys.argv[1], sys.argv[2:]); print(e or '')" "$version" ${others[@]+"${others[@]}"})
@@ -160,7 +160,7 @@ jobs:
     name: "3 · Approve, publish and move the version forward"
     needs: [plan, build]
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 20
     environment: release
     permissions:
       contents: write
@@ -186,18 +186,18 @@ jobs:
         env:
           EVENT: ${{ github.event_name }}
           PROMOTE: ${{ needs.plan.outputs.promote }}
+          RELEASE_BOT_TOKEN: ${{ secrets.RELEASE_BOT_TOKEN }}
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           if [ "$EVENT" != workflow_dispatch ]; then echo "Tag v$VERSION was pushed; nothing to tag."; exit 0; fi
           [ "$(git rev-parse HEAD)" = "$SHA" ] || { echo "::error::main moved after the release was planned; start the release again"; exit 1; }
-          if [ "$PROMOTE" = true ]; then
-            python3 dridh/scripts/version.py set "$VERSION"
-            git commit -qam "Release $VERSION"
-          fi
-          git tag -a "v$VERSION" -m "Dridh $VERSION"
-          git push --atomic origin HEAD:main "v$VERSION"
+          # main keeps its release-candidate version. The release version is written only into the build (see the build job),
+          # so the tag names the exact main commit that was tested and no commit is needed for the release itself.
+          git tag -a "v$VERSION" -m "Dridh $VERSION" "$SHA"
+          git push -q origin "v$VERSION"
+          echo "Tagged v$VERSION at $SHA." >> "$GITHUB_STEP_SUMMARY"
 
       - name: Publish the GitHub Release
         shell: bash
@@ -211,17 +211,23 @@ jobs:
             "$RUNNER_TEMP/dist/dridh-$VERSION-py3-none-any.whl" "$RUNNER_TEMP/dist/dridh-$VERSION-py3-none-any.whl.sha256" install.sh
           echo "Published v$VERSION." >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Move main to the next version
+      - name: Open the pull request that moves main to the next version
         shell: bash
+        env:
+          RELEASE_BOT_TOKEN: ${{ secrets.RELEASE_BOT_TOKEN }}
         run: |
           set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git fetch -q origin main && git checkout -q -B main origin/main
           current=$(python3 dridh/scripts/version.py)
-          next=$(python3 dridh/scripts/version.py next "$VERSION")
-          if [ "$current" != "$VERSION" ]; then
-            echo "main already carries $current (not $VERSION); leaving it." | tee -a "$GITHUB_STEP_SUMMARY"; exit 0
+          line() { echo "${1%%rc*}"; }
+          # main carries a candidate of the release line (0.7.10rc1 for 0.7.10); anything else is left alone.
+          if [ "$(line "$current")" != "$(line "$VERSION")" ]; then
+            echo "main carries $current, not a candidate of $(line "$VERSION"); leaving it." | tee -a "$GITHUB_STEP_SUMMARY"; exit 0
           fi
+          next=$(python3 dridh/scripts/version.py next "$VERSION")
           python3 dridh/scripts/version.py set "$next"
           git commit -qam "Start $next (after releasing $VERSION)"
-          git push origin HEAD:main || { echo "::error::v$VERSION is published, but main could not be moved to $next (protected?). Set it by hand."; exit 1; }
-          echo "main now carries $next." >> "$GITHUB_STEP_SUMMARY"
+          url=$(RELEASE_BOT_TOKEN="$RELEASE_BOT_TOKEN" scripts/ci/release_pr.sh "version-$next" "Start $next (after releasing $VERSION)")
+          echo "Opened $url to start $next; it merges when CI and the CLA check pass." >> "$GITHUB_STEP_SUMMARY"

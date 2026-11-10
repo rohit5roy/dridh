@@ -23,6 +23,7 @@ import hashlib
 import json
 import os
 import platform
+import shutil
 import sys
 import tempfile
 from dataclasses import dataclass, field
@@ -43,6 +44,7 @@ MANIFEST_SCHEMA = "dridh.install-manifest"
 MANIFEST_VERSION = 1
 CONFIG_NAMES = ("opencode.json", "opencode.jsonc")
 PLUGIN_NAME = "dridh-bridge"
+EXECUTABLE_FILE = "dridh-bin"
 
 
 @dataclass(frozen=True)
@@ -156,13 +158,8 @@ def resolve_layout(config_dir: str | Path | None = None, config_file: str | None
         name = config_file
     else:
         present = [candidate for candidate in CONFIG_NAMES if (base / candidate).exists()]
-        if len(present) > 1:
-            raise DridhError(
-                ErrorCode.CONFIGURATION_CONFLICT,
-                "Both opencode.json and opencode.jsonc exist in the configuration directory.",
-                recovery="Re-run with --config-file opencode.json or --config-file opencode.jsonc to choose the file Dridh updates.",
-            )
-        name = present[0] if present else "opencode.json"
+        # OpenCode's own file is opencode.json; an opencode.jsonc beside it is usually a leftover stub, so prefer the JSON file.
+        name = "opencode.json" if "opencode.json" in present or not present else present[0]
 
     install_root = base / "dridh"
     return Layout(
@@ -211,12 +208,23 @@ def _agent_files(source: Path) -> dict[str, bytes]:
     return files
 
 
+def _dridh_executable() -> str:
+    """Absolute path of the dridh command that is installing, so OpenCode does not need it on PATH."""
+
+    running = Path(sys.argv[0]) if sys.argv and sys.argv[0] else None
+    if running is not None and running.name == "dridh" and running.is_absolute() and running.exists():
+        return str(running)
+    found = shutil.which("dridh")
+    return str(Path(found).resolve()) if found else "dridh"
+
+
 def desired_files(layout: Layout, plugin_source: Path, agent_source: Path) -> dict[str, bytes]:
     """Map every managed path, relative to the configuration directory, to its content."""
 
     desired: dict[str, bytes] = {}
     for relative, content in _plugin_files(plugin_source).items():
         desired[f"dridh/plugin/{PLUGIN_NAME}/{relative}"] = content
+    desired[f"dridh/plugin/{PLUGIN_NAME}/{EXECUTABLE_FILE}"] = (_dridh_executable() + "\n").encode("utf-8")
     for name, content in _agent_files(agent_source).items():
         desired[f"agents/dridh/{name}"] = content
     return desired

@@ -6,8 +6,10 @@
  * success without checking `ok === true`.
  */
 import { spawn } from "node:child_process"
-import { existsSync, statSync } from "node:fs"
+import { existsSync, readFileSync, statSync } from "node:fs"
 import { randomUUID } from "node:crypto"
+import { dirname, resolve } from "node:path"
+import { fileURLToPath } from "node:url"
 
 export const RUNTIME_OPERATIONS = ["runtime.info", "runtime.ping"] as const
 
@@ -62,6 +64,17 @@ export const WORKFLOW_OPERATIONS = [
 
 // Called by the plugin's own OpenCode hooks (plan section 7.5), never offered to agents through the dridh.bridge tool.
 export const HOOK_OPERATIONS = ["hook.context", "hook.tool_call", "hook.session_event"] as const
+
+// The installer records the absolute path of the dridh command in dridh-bin, one level above dist/.
+function recordedExecutable(): string | undefined {
+  try {
+    const file = resolve(dirname(fileURLToPath(import.meta.url)), "..", "dridh-bin")
+    const value = readFileSync(file, "utf8").trim()
+    return value.length > 0 ? value : undefined
+  } catch {
+    return undefined
+  }
+}
 
 export type BridgeOperation = (typeof HOOK_OPERATIONS)[number] | (typeof RUNTIME_OPERATIONS)[number] | (typeof JEV_OPERATIONS)[number] | (typeof IDEATOR_OPERATIONS)[number] | (typeof DESIGNER_OPERATIONS)[number] | (typeof PLANNER_OPERATIONS)[number] | (typeof COORDINATOR_OPERATIONS)[number] | (typeof CODE_REACHER_OPERATIONS)[number] | (typeof WORKFLOW_OPERATIONS)[number]
 
@@ -233,7 +246,7 @@ export class BridgeClient {
   private readonly killGraceMs: number
 
   constructor(options: BridgeClientOptions) {
-    this.executable = options.executable ?? process.env.DRIDH_BIN ?? "dridh"
+    this.executable = options.executable ?? process.env.DRIDH_BIN ?? recordedExecutable() ?? "dridh"
     this.workspaceRoot = options.workspaceRoot
     this.timeoutMs = options.timeoutMs ?? 30_000
     this.env = options.env ?? {}

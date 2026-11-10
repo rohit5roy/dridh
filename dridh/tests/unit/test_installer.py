@@ -9,6 +9,8 @@ import pytest
 
 from dridh.common.errors import DridhError, ErrorCode
 from dridh.install.installer import (
+    EXECUTABLE_FILE,
+    PLUGIN_NAME,
     apply_install,
     apply_uninstall,
     plan_install,
@@ -253,15 +255,28 @@ def test_uninstall_removes_configuration_file_that_installer_created(tmp_path: P
     assert not layout.config_file.exists()
 
 
-def test_ambiguous_configuration_file_requires_explicit_choice(tmp_path: Path) -> None:
+def test_both_configuration_files_prefer_opencode_json_and_explicit_choice_still_wins(tmp_path: Path) -> None:
     config = tmp_path / "cfg"
     config.mkdir()
     (config / "opencode.json").write_text("{}")
     (config / "opencode.jsonc").write_text("{}")
-    with pytest.raises(DridhError) as ambiguous:
-        resolve_layout(config)
-    assert ambiguous.value.code is ErrorCode.CONFIGURATION_CONFLICT
+    assert resolve_layout(config).config_file.name == "opencode.json"
     assert resolve_layout(config, "opencode.jsonc").config_file.name == "opencode.jsonc"
+
+
+def test_only_a_jsonc_file_is_updated_when_it_is_the_sole_config(tmp_path: Path) -> None:
+    config = tmp_path / "cfg"
+    config.mkdir()
+    (config / "opencode.jsonc").write_text("{}")
+    assert resolve_layout(config).config_file.name == "opencode.jsonc"
+
+
+def test_install_records_the_dridh_executable_for_the_plugin(tmp_path: Path, sources) -> None:
+    plugin, agents = sources
+    layout = resolve_layout(tmp_path / "cfg")
+    plan = plan_install(layout, plugin_source=plugin, agent_source=agents)
+    recorded = plan.desired[f"dridh/plugin/{PLUGIN_NAME}/{EXECUTABLE_FILE}"].decode().strip()
+    assert recorded and Path(recorded).name == "dridh"
 
 
 def test_config_dir_must_be_absolute(tmp_path: Path) -> None:
