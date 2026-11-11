@@ -3,7 +3,7 @@
 # Dridh supports OpenCode 2.2.5 or later (D-P18-03) while ci.yml tests the lock-pinned release. This workflow installs
 # the newest @opencode/cli and @opencode/plugin from npm and runs the plugin tests and the Category A suite against
 # them, so a breaking OpenCode release shows up before users meet it. It is never a merge gate: run it by hand, and it
-# runs once a month. When it passes on a newer release, move the lock in scripts/ci/opencode-cli (and the plugin's
+# runs once a month. When it passes on a newer release, move the lock in .github/scripts/opencode-cli (and the plugin's
 # @opencode/plugin) to that release in a normal pull request.
 
 name: OpenCode latest (compatibility)

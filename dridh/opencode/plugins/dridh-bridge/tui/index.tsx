@@ -18,16 +18,21 @@ import { Plugin } from "@opencode/plugin/tui"
 import { useKeyboard } from "@opentui/solid"
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js"
 import { execFile, spawn } from "node:child_process"
+// Shared with the server bridge; the installer places dist/ beside tui/ (see src/executable.ts).
+import { missingExecutableMessage, resolveDridhExecutable } from "../dist/executable.js"
 
 type Json = any
 
-const bin = () => process.env.DRIDH_BIN || "dridh"
+/** The dridh command, found the same way as the server bridge finds it: DRIDH_BIN, the installer record, PATH. */
+const bin = () => resolveDridhExecutable()
 
 /** Run a read-only or record-only Dridh command and parse its JSON. */
 function dridhJson(args: string[], cwd: string): Promise<Json> {
   return new Promise((resolve, reject) => {
-    execFile(bin(), [...args, "--json", "--project", cwd], { cwd, timeout: 60_000, maxBuffer: 8 << 20, env: { ...process.env, DRIDH_OUTPUT: "json" } },
+    const executable = bin()
+    execFile(executable, [...args, "--json", "--project", cwd], { cwd, timeout: 60_000, maxBuffer: 8 << 20, env: { ...process.env, DRIDH_OUTPUT: "json" } },
       (error, stdout, stderr) => {
+        if ((error as NodeJS.ErrnoException | null)?.code === "ENOENT") return reject(new Error(missingExecutableMessage(executable)))
         let parsed: Json
         try { parsed = JSON.parse(stdout) } catch { parsed = undefined }
         if (error || parsed === undefined || parsed?.ok === false) {
@@ -687,7 +692,7 @@ export default Plugin.define({
     })
 
     const statusLine = (short = false) => (
-      <Show when={feature()} fallback={<Show when={error()}><text fg={c.bad}>dridh · {error()!.slice(0, 60)}</text></Show>}>
+      <Show when={feature()} fallback={<Show when={error()}><text fg={c.bad}>dridh · {error()!.slice(0, 72)}</text></Show>}>
         <text fg={c.accent}>dridh <span style={{ fg: c.muted }}>·</span> {feature().slug} <span style={{ fg: c.muted }}>·</span> {feature().stage_label}
           <Show when={action() && action().kind !== "wait"}><span style={{ fg: c.warn }}>{short ? " · ⚑ needs you" : ` · ⚑ ${action().text}`}</span></Show>
         </text>

@@ -24,7 +24,8 @@ def fail(message: str) -> None:
 
 def main() -> None:
     dist = PLUGIN_SOURCE / "dist"
-    if not (dist / "index.js").is_file() or not (dist / "bridge-client.js").is_file():
+    # executable.js is imported by both dist/ and tui/ (see src/executable.ts), so it must ship.
+    if not all((dist / name).is_file() for name in ("index.js", "bridge-client.js", "executable.js")):
         fail("plugin dist is missing; run `npm run build` in opencode/plugins/dridh-bridge first")
     profiles = sorted(AGENT_SOURCE.rglob("*.md"))
     if not profiles:

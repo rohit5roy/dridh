@@ -50,7 +50,7 @@ jobs:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           OPENCODE_PROVIDER_CREDENTIAL: ${{ secrets.OPENCODE_PROVIDER_CREDENTIAL }}
           REQUIRE_LIVE: ${{ inputs.require_live }}
-        run: python3 scripts/ci/live_model_preflight.py
+        run: python3 .github/scripts/live_model_preflight.py
 
       - name: Set up the toolchain, the pinned OpenCode CLI and the locked Python dependencies
         if: steps.preflight.outputs.available == 'true'
@@ -98,7 +98,7 @@ jobs:
         shell: bash
         working-directory: dridh
         env:
-          DRIDH_OPENCODE_BIN: ${{ github.workspace }}/scripts/ci/opencode-cli/node_modules/.bin/opencode
+          DRIDH_OPENCODE_BIN: ${{ github.workspace }}/.github/scripts/opencode-cli/node_modules/.bin/opencode
           # OpenCode's native OpenRouter provider reads OPENROUTER_API_KEY.
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           # Jev System One continues using its existing independent credential.
@@ -164,7 +164,7 @@ jobs:
         run: |
           set -uo pipefail
           if [ -f "$RUNNER_TEMP/live/pytest-live.xml" ]; then
-            python3 scripts/ci/summarize_results.py junit "$RUNNER_TEMP/live/pytest-live.xml" | tee -a "$GITHUB_STEP_SUMMARY"
+            python3 .github/scripts/summarize_results.py junit "$RUNNER_TEMP/live/pytest-live.xml" | tee -a "$GITHUB_STEP_SUMMARY"
           else
             echo "Live tests did not run. Check the preceding setup step." | tee -a "$GITHUB_STEP_SUMMARY"
           fi

@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-SCRIPT = Path(__file__).resolve().parents[3] / "scripts" / "ci" / "live_model_preflight.py"
+SCRIPT = Path(__file__).resolve().parents[3] / ".github" / "scripts" / "live_model_preflight.py"
 pytestmark = pytest.mark.skipif(not SCRIPT.is_file(), reason="repository CI scripts are not available")
 
 KEY = "sk-or-test-secret-value"

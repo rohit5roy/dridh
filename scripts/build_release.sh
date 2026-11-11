@@ -14,6 +14,6 @@ OUT="$(cd "$OUT" && pwd)"
 
 version="$(python3 "$ROOT/dridh/scripts/version.py")"
 wheel="dridh-$version-py3-none-any.whl"
-python3 "$ROOT/scripts/ci/check_wheel.py" "$OUT/$wheel" >/dev/null || { python3 "$ROOT/scripts/ci/check_wheel.py" "$OUT/$wheel"; exit 1; }
+python3 "$ROOT/.github/scripts/check_wheel.py" "$OUT/$wheel" >/dev/null || { python3 "$ROOT/.github/scripts/check_wheel.py" "$OUT/$wheel"; exit 1; }
 (cd "$OUT" && sha256sum "$wheel" > "$wheel.sha256")
 echo "$OUT/$wheel"
