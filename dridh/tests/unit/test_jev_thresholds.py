@@ -1,4 +1,4 @@
-"""Per-checkpoint Jev readiness thresholds (decision D-P9-04)."""
+"""Per-checkpoint Jev readiness thresholds."""
 
 from __future__ import annotations
 

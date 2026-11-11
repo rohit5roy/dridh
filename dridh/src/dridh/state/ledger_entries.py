@@ -1,4 +1,4 @@
-"""Ledger entries as queryable rows (plan 17.3; schema v15).
+"""Ledger entries as queryable rows (schema v15).
 
 ``ledger_entry`` holds one row per Table 14 entry of the imported LEDGER.md revision. Rows are replaced by import, never edited
 in place, and every row carries the SHA-256 of its Markdown (row plus definition block). ``ledger_import`` records which document

@@ -1,4 +1,4 @@
-"""Import LEDGER.md into queryable rows and reconcile it with the database (plan 17.3).
+"""Import LEDGER.md into queryable rows and reconcile it with the database.
 
 ``import_ledger`` stores the validated Table 14 entries. ``reconcile`` compares file, rows and the rest of the state and reports
 findings; with ``repair=True`` it only ever re-imports the rows from the file. It never edits Markdown, never records an approval

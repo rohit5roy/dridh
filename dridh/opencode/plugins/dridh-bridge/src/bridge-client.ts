@@ -61,7 +61,7 @@ export const WORKFLOW_OPERATIONS = [
   "workflow.verify_ledger",
 ] as const
 
-// Called by the plugin's own OpenCode hooks (plan section 7.5), never offered to agents through the dridh.bridge tool.
+// Called by the plugin's own OpenCode hooks, never offered to agents through the dridh.bridge tool.
 export const HOOK_OPERATIONS = ["hook.context", "hook.tool_call", "hook.session_event"] as const
 
 export type BridgeOperation = (typeof HOOK_OPERATIONS)[number] | (typeof RUNTIME_OPERATIONS)[number] | (typeof JEV_OPERATIONS)[number] | (typeof IDEATOR_OPERATIONS)[number] | (typeof DESIGNER_OPERATIONS)[number] | (typeof PLANNER_OPERATIONS)[number] | (typeof COORDINATOR_OPERATIONS)[number] | (typeof CODE_REACHER_OPERATIONS)[number] | (typeof WORKFLOW_OPERATIONS)[number]

@@ -99,7 +99,7 @@ app.add_typer(execute_app, name="execute")
 app.add_typer(ideator_app, name="ideator")
 app.add_typer(designer_app, name="designer")
 
-EXIT_PREREQUISITE_MISSING = 3  # plan section 4.2
+EXIT_PREREQUISITE_MISSING = 3
 
 PROJECT_OPTION = typer.Option(
     None, "--workspace", "--project",
@@ -210,7 +210,7 @@ MODE_OPTION = typer.Option(
 
 
 def _resolve_init_mode(root: Path, mode: str | None) -> tuple[str | None, str]:
-    """Return (mode, source). Creating a workspace never silently guesses the mode (plan section 3.2)."""
+    """Return (mode, source). Creating a workspace never silently guesses the mode."""
 
     from dridh.workspace.layout import WORKSPACE_MODES, suggest_mode, workspace_exists
 
@@ -1773,7 +1773,7 @@ def ledger_reconcile(
     report = LedgerService(_workspace(project)).reconcile(path, repair=repair)
     _emit(report)
     if not report["ok"]:
-        raise typer.Exit(code=4)  # plan 4.2: validation failure
+        raise typer.Exit(code=4)  # validation failure
 
 
 @ledger_app.command("list")

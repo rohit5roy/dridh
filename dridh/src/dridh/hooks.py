@@ -1,4 +1,4 @@
-"""Bridge operations behind the OpenCode plugin's hooks (plan section 7.5).
+"""Bridge operations behind the OpenCode plugin's hooks.
 
 The plugin calls these from OpenCode hooks, never from the agent-facing ``dridh.bridge`` tool (they are not in its
 allow-list), and only for Dridh agents (``dridh/...``): ordinary OpenCode sessions never reach Dridh state.

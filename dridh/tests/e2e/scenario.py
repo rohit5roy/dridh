@@ -1024,7 +1024,7 @@ def delivery_plan_run(info: Any, planner: Any, project: Path, run_id: str) -> di
 
 
 def worktree_permission_checks() -> None:
-    """E2E-45 (GAP-12): a worker cannot remove a worktree that OpenCode itself registered; the worktree survives.
+    """E2E-45: a worker cannot remove a worktree that OpenCode itself registered; the worktree survives.
 
     The worktree is created through OpenCode's own API so the tool's "not a worktree of this project" guard cannot be what
     refuses the call: only the profile's permission rule can. The refusal must therefore be "Permission denied".

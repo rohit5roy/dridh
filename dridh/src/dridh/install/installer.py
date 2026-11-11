@@ -459,7 +459,7 @@ def apply_install(plan: InstallPlan, *, force: bool = False) -> dict[str, Any]:
         "config_backup": config_backup_relative,
         "plugin_entry": plan.plugin_entry,
         "files": managed,
-        # Additive provenance (plan section 2.2); older manifests simply lack these keys.
+        # Additive provenance; older manifests simply lack these keys.
         **_plugin_metadata(plan.desired),
         "python_executable": sys.executable,
         "python_version": platform.python_version(),

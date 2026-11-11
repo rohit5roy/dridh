@@ -1,4 +1,4 @@
-"""`dridh init` never silently guesses whether a project is new or existing (plan section 3.2)."""
+"""`dridh init` never silently guesses whether a project is new or existing."""
 
 from __future__ import annotations
 

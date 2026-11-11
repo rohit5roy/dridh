@@ -1,7 +1,7 @@
 """Code Reacher: Tree-sitter code intelligence (Phase 14).
 
 Heavy native packages (Tree-sitter, sqlite-vec, FastEmbed) are imported inside the functions that need them,
-never at CLI start-up (decisions D-P0-09 and D-41). Public entry points::
+never at CLI start-up. Public entry points::
 
     from dridh.code_reacher.indexer import CodeIndexer     # incremental indexing
     from dridh.code_reacher.search import CodeSearch       # lookup, symbol, dependencies, endpoints, status

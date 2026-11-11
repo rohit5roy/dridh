@@ -1,4 +1,4 @@
-"""GitHub access behind a Python adapter (plan 16.3). Only REST endpoints are used, through the ``gh`` CLI."""
+"""GitHub access behind a Python adapter. Only REST endpoints are used, through the ``gh`` CLI."""
 
 from __future__ import annotations
 

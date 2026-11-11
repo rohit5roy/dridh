@@ -31,7 +31,17 @@ preserved.
 - `key=value`, `key: value`, quoted JSON-like pairs and CLI flags
   (`--api-key value`, `--db-password=value`).
 - URL credentials (`https://user:password@host`).
-- Secret-bearing filesystem paths (`.ssh`, `.aws`, `.env`, `auth.json`, etc.).
+- Sensitive query-string parameters (`?token=…`, `&api_key=…`): the name is matched with the key rules above, and the value is replaced.
+- Environment assignments on their own line or in a block (`OPENAI_API_KEY=…`, `DB_PASSWORD=…`): the value is replaced, the name kept.
+- Secret-bearing filesystem paths, replaced with `[REDACTED_PATH]`:
+  - `/.ssh/` and `/.aws/` directories;
+  - SSH private keys named `id_rsa` or `id_ed25519`;
+  - OpenCode's `~/.config/opencode/auth.json`;
+  - `.env` files, including `.env.<name>`;
+  - `.npmrc` and `.pypirc`;
+  - `credentials` as a file: `/credentials`, `credentials.json`, `credentials.yaml`/`.yml`, `.toml`, `.ini`, `.cfg`, `.txt`, `.xml`.
+
+  The bare word "credentials" in ordinary prose is not redacted.
 
 ## Surfaces covered
 
@@ -50,5 +60,5 @@ alone:
 
 ```bash
 cd dridh
-.venv/bin/python -m pytest tests/security -q
+uv run pytest tests/security -q
 ```

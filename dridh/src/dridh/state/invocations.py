@@ -1,4 +1,4 @@
-"""Append-only record of bridge tool invocations (plan 5.2 ``tool_invocation``; schema v14).
+"""Append-only record of bridge tool invocations (``tool_invocation``; schema v14).
 
 Stores who called which operation, whether it succeeded, how long it took and a SHA-256 of the canonical payload.
 The payload itself is never stored, so secrets and document text cannot leak into the audit trail.

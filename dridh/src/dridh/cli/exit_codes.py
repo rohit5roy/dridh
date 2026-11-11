@@ -1,4 +1,4 @@
-"""Stable CLI exit codes (plan section 4.2). Every ``ErrorCode`` maps to exactly one of them."""
+"""Stable CLI exit codes. Every ``ErrorCode`` maps to exactly one of them."""
 
 from __future__ import annotations
 

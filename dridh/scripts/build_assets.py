@@ -58,7 +58,7 @@ def main() -> None:
         "private": True,
         "type": "module",
         "exports": {".": "./dist/index.js", **({"./tui": "./tui/index.tsx"} if (PLUGIN_SOURCE / "tui" / "index.tsx").is_file() else {})},
-        # Provenance recorded in the install manifest (plan section 2.2); not used by OpenCode.
+        # Provenance recorded in the install manifest; not used by OpenCode.
         "opencodePluginSdk": sdk_version,
     }
     (target_plugin / "package.json").write_text(json.dumps(manifest, indent=2) + "\n")

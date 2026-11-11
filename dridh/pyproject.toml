@@ -22,7 +22,7 @@ dependencies = [
   "pydantic==2.14.3",
   "typer==0.27.3",
   "pyyaml==6.0.2",
-  # Code Reacher (Phase 14). Versions proven in the Phase 0 spike (D-P0-08); imported lazily, never at CLI start-up.
+  # Code Reacher. Versions are pinned here; imported lazily, never at CLI start-up.
   "tree-sitter==0.26.0",
   "tree-sitter-python==0.25.0",
   "tree-sitter-java==0.23.5",

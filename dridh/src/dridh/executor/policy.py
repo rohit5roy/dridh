@@ -1,4 +1,4 @@
-"""What the Executor may run and how (decisions D-P15-04 and D-P15-06).
+"""What the Executor may run and how.
 
 Only test commands from a short allow-list run, always as an argument list (no shell), inside the story's
 worktree, with a scrubbed environment (no credentials), a timeout and bounded redacted output. Network access

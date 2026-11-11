@@ -1,4 +1,4 @@
-"""Plan 4.2: stable exit codes, one per error category, applied at the top level."""
+"""Stable exit codes, one per error category, applied at the top level."""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""Plan 17.4: SQLite lock contention is reported as a retryable, explained condition, never as a crash or as corruption."""
+"""SQLite lock contention is reported as a retryable, explained condition, never as a crash or as corruption."""
 
 from __future__ import annotations
 

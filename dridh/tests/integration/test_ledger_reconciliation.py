@@ -1,4 +1,4 @@
-"""Ledger import and reconciliation (plan 17.3)."""
+"""Ledger import and reconciliation."""
 
 from __future__ import annotations
 

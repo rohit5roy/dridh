@@ -47,7 +47,7 @@ def _alive(pid: int) -> bool:
 
 
 def test_killing_the_parent_terminates_the_bridge_and_its_new_session_workers(tmp_path) -> None:
-    """GAP-11: OpenCode (the parent) dying with SIGKILL must not leave workers running."""
+    """OpenCode (the parent) dying with SIGKILL must not leave workers running."""
     import signal
     import subprocess
     import sys

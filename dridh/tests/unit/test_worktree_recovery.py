@@ -1,4 +1,4 @@
-"""Plan 17.4: a worktree with uncommitted changes is never silently destroyed."""
+"""A worktree with uncommitted changes is never silently destroyed."""
 
 from __future__ import annotations
 
