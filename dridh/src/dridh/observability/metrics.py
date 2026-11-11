@@ -133,7 +133,7 @@ def collect(info: WorkspaceInfo) -> dict[str, Any]:
 
 
 def _flag_stale_index(report: dict[str, Any], info: WorkspaceInfo) -> None:
-    """Plan 17.1: say so when the index no longer matches the project's Git HEAD (a missed change is never silent)."""
+    """Say so when the index no longer matches the project's Git HEAD (a missed change is never silent)."""
     section = report.get("code_reacher")
     if not isinstance(section, dict) or not section.get("indexed"):
         return

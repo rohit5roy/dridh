@@ -1,4 +1,4 @@
-"""Execution run persistence (schema v12; decisions D-P15-01..06).
+"""Execution run persistence (schema v12).
 
 * ``execution_run``         - one confirmed run of a feature's approved plan. Status changes use an
                               optimistic revision check.

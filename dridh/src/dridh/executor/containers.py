@@ -1,4 +1,4 @@
-"""Story tests in containers (plan 15.6–15.8, recovery scenarios 10 and 11).
+"""Story tests in containers (recovery scenarios 10 and 11).
 
 Each story's test command runs in a fresh container that sees only the story's worktree (mounted at ``/work``), on a
 network of its own, with labels that identify the workspace, run and story, CPU and memory limits, and the caller's

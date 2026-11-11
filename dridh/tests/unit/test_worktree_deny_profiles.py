@@ -1,4 +1,4 @@
-"""GAP-12: profiles that may edit must deny edits to OpenCode-managed worktrees; the tool-name deny is a no-op."""
+"""Profiles that may edit must deny edits to OpenCode-managed worktrees; the tool-name deny is a no-op."""
 from __future__ import annotations
 
 from pathlib import Path

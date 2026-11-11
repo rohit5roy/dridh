@@ -1,4 +1,4 @@
-"""Mandatory Jev checkpoints for the stage services (plan 9.3 task level, 9.4 fallback, 9.6 advisory).
+"""Mandatory Jev checkpoints for the stage services .
 
 Python calls Jev after a stage's deterministic validation has passed. The result is recorded and shown to the human
 reviewer, never used to approve, and never allowed to block: when Jev is disabled, unavailable, slow or answers

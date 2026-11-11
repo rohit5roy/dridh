@@ -189,7 +189,7 @@ def repairing_agent():
 
 
 def test_real_github_ci_repair_loop_and_an_observed_human_merge(live):
-    """Plan 16.7 and D-P16-02 live: a failing required check is repaired by the Executor with a new commit, the new head
+    """Live: a failing required check is repaired by the Executor with a new commit, the new head
     SHA is evaluated, the story integrates, and a merge made by a person on GitHub is observed as REMOTE_MERGED.
 
     The PR targets a scratch base branch made from main for this test, so the merge never touches the repository's main;
@@ -241,7 +241,7 @@ def test_real_github_ci_repair_loop_and_an_observed_human_merge(live):
     assert outcome["unlocked"] is True
     assert "REMOTE_MERGED" not in engine.gates("ST-REPAIR")  # Dridh never merges and never waits for a merge
 
-    # The person merges on GitHub (Dridh has no merge operation, D-P16-01); Dridh observes it on the next refresh.
+    # The person merges on GitHub (Dridh has no merge operation); Dridh observes it on the next refresh.
     try:
         assert json.loads(gh("-X", "PUT", f"repos/{REPO}/pulls/{number}/merge", "-f", "merge_method=merge", "-f", f"sha={new_head}"))["merged"]
         how = "merge button (API)"

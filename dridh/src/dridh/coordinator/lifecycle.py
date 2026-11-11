@@ -1,4 +1,4 @@
-"""The feature lifecycle: one answer to "where is this feature, and what may happen next?" (plan 5.4, 8.3).
+"""The feature lifecycle: one answer to "where is this feature, and what may happen next?".
 
 Stages (single forward steps, ``CODEBASE_INDEXING`` only for existing codebases)::
 
@@ -249,7 +249,7 @@ class StageEvidence:
 
 
 class FeatureLifecycle:
-    """Dispatcher for the feature lifecycle (plan 8.3): create, status, advance, sync, reopen, block, complete."""
+    """Dispatcher for the feature lifecycle: create, status, advance, sync, reopen, block, complete."""
 
     MAX_STEPS = len(STAGES) + 4
 

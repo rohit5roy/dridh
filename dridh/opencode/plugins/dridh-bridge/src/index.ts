@@ -10,12 +10,12 @@
  * model. Workflow operations are authorised by the bridge only for the
  * `dridh/coordinator` agent.
  *
- * Hooks (plan section 7.5), for Dridh agents (`dridh/...`) only, so ordinary sessions never touch Dridh state:
+ * Hooks, for Dridh agents (`dridh/...`) only, so ordinary sessions never touch Dridh state:
  * - session `context`: adds a compact summary of the feature, stage, next human step and blockers to the request;
  * - tool `execute.before`/`execute.after`: records each tool call's metadata (tool, agent, session, status, duration,
  *   input keys and SHA-256, never the input itself) in Dridh's audit table;
  * - the event stream: records execution, idle and compaction events of Dridh sessions for correlation and status.
- * The experimental idle hook is not used, so no workflow correctness depends on it (D-P7-05).
+ * The experimental idle hook is not used, so no workflow correctness depends on it.
  */
 import { Plugin } from "@opencode/plugin"
 import { createHash } from "node:crypto"
@@ -195,7 +195,7 @@ export default Plugin.define({
     })
 
 
-    // ---------------------------------------------------------------- hooks (plan section 7.5)
+    // ---------------------------------------------------------------- hooks
     const isDridh = (agent: unknown): agent is string => typeof agent === "string" && agent.startsWith("dridh/")
     const dridhSessions = new Map<string, string>() // sessionID -> agent, learned from Dridh agents' requests and tool calls
     const contextCache = new Map<string, { at: number; text: string }>()

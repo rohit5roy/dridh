@@ -241,7 +241,7 @@ def test_true_divergence_is_reported_and_never_forced(world, tmp_path):
     assert git(remote, "rev-parse", "dridh/integration/f") == before
 
 
-# ---------------------------------------------------------------- CI failure repair (plan 16.7)
+# ---------------------------------------------------------------- CI failure repair
 
 
 class TreeGitHub(FakeGitHub):

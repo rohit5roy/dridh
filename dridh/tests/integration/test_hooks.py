@@ -1,4 +1,4 @@
-"""Bridge operations behind the plugin's OpenCode hooks (plan section 7.5)."""
+"""Bridge operations behind the plugin's OpenCode hooks."""
 
 from __future__ import annotations
 

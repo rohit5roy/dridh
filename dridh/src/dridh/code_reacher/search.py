@@ -1,7 +1,7 @@
 """Code Reacher queries: lookup (full-text + optional vectors), exact symbol, call graph, endpoints, status.
 
 Every result carries the evidence needed to check it (path, lines, qualified name, source snapshot) and says
-which method found it. Unresolved relations are returned as unresolved; they are never guessed (plan 1.2).
+which method found it. Unresolved relations are returned as unresolved; they are never guessed.
 """
 
 from __future__ import annotations

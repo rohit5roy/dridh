@@ -1,4 +1,4 @@
-"""Story tests in real containers (plan 15.6-15.8, recovery scenarios 10 and 11). Needs a Docker daemon."""
+"""Story tests in real containers (recovery scenarios 10 and 11). Needs a Docker daemon."""
 
 from __future__ import annotations
 

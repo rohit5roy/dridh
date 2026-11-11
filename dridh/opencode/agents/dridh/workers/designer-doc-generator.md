@@ -5,7 +5,7 @@ permissions:
   - action: "*"
     resource: "*"
     effect: deny
-  # No real access: OpenCode's free models refuse a request that offers no tool at all (D-P18-02), so `read` is
+  # No real access: OpenCode's free models refuse a request that offers no tool at all, so `read` is
   # offered for a path that does not exist. Every real read is denied.
   - action: read
     resource: "/dridh-no-access/*"

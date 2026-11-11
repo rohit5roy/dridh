@@ -437,7 +437,7 @@ def test_discarding_a_story_keeps_its_uncommitted_work_and_its_branch_tip(env):
     assert planner.stories["ST-001"]["status"] == "NOT_STARTED"
 
 
-# ------------------------------------------------------------ crash recovery (plan 17.4)
+# ------------------------------------------------------------ crash recovery
 
 
 def _crashed_run(env):

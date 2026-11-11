@@ -1,4 +1,4 @@
-"""The Executor run controller (decisions D-P15-01..06).
+"""The Executor run controller.
 
 Python owns every story status and every run state change; the model only edits files in a story's worktree.
 A run starts only after a human approved the plan *and* typed a per-run confirmation. Stories run in dependency

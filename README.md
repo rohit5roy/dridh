@@ -122,4 +122,4 @@ available from the copyright holder, Rohit Roy. Contributors accept the [Contrib
 
 ## Learn more
 
-- [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [AGPL-3.0 licence](LICENSE)
+- [Documentation](docs/README.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [AGPL-3.0 licence](LICENSE)

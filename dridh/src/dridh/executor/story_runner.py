@@ -222,7 +222,7 @@ class StoryRunner:
         return [], commit
 
     async def _run_tests(self, command: list[str], path: Path, *, run_id: str, story_id: str, worktree_id: str) -> dict[str, Any]:
-        """Run the story's tests in a container when configured and possible (plan 15.6), else on the host."""
+        """Run the story's tests in a container when configured and possible, else on the host."""
         from dridh.executor import containers as c
 
         config = self.settings.containers

@@ -1,4 +1,4 @@
-"""The Executor: story-level implementation under a human-approved plan (decisions D-P15-01..06)."""
+"""The Executor: story-level implementation under a human-approved plan."""
 
 from __future__ import annotations
 

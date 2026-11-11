@@ -11,7 +11,7 @@ Every check reports PASS, WARN or FAIL with the evidence and, when not PASS, a r
 The module never writes, never migrates and never creates directories. It reports credential *names*
 only, never values. Subprocesses use argument arrays with short timeouts. Heavy packages (FastEmbed,
 ONNX Runtime, Tree-sitter, sqlite-vec) are located with ``importlib.util.find_spec`` and never imported,
-so the command stays cheap (Decision D-P0-09).
+so the command stays cheap.
 """
 
 from __future__ import annotations
@@ -37,7 +37,7 @@ PASS, WARN, FAIL = "PASS", "WARN", "FAIL"
 # Environment variable *names* that may hold provider credentials (values are never read into output).
 CREDENTIAL_NAMES = ("OPENROUTER_API_KEY", "OPENCODE_API_KEY", "OPENCODE_PROVIDER_CREDENTIAL", "ANTHROPIC_API_KEY")
 
-# Optional native/heavy capabilities (GraphQLite is not listed: Code Reacher v1 does not use it, D-P14-05): (importable module, label, what happens without it, how to get it).
+# Optional native/heavy capabilities (GraphQLite is not listed: Code Reacher v1 does not use it): (importable module, label, what happens without it, how to get it).
 OPTIONAL_PACKAGES = (
     ("tree_sitter", "Tree-sitter parser (Code Reacher)", "Code Reacher cannot parse source files", "Reinstall Dridh; tree-sitter is a runtime dependency."),
     ("sqlite_vec", "sqlite-vec vector search (Code Reacher)", "an exact search over stored vectors is used instead", "Reinstall Dridh; sqlite-vec is a runtime dependency."),

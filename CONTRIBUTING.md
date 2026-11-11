@@ -32,6 +32,8 @@ the tests and the packaged wheel, then the Docker full-system E2E. The `CI gate`
 
 ## Rules the code keeps
 
+The design notes for the bridge, the plugin, the agent runner and recovery are indexed in [docs/README.md](docs/README.md). Update them in the same change when you alter the behaviour they describe.
+
 - Approvals stay human-only and typed in a terminal; never add a bridge operation or agent tool that approves.
 - Every behaviour change comes with a test; a bug fix comes with a test that fails without it.
 - The version is set only in `dridh/src/dridh/__init__.py`, and releases move it forward (see below).

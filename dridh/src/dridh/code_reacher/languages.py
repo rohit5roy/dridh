@@ -1,4 +1,4 @@
-"""Language registry. Tree-sitter and the grammars are imported on first use, never at CLI start-up (D-P0-09)."""
+"""Language registry. Tree-sitter and the grammars are imported on first use, never at CLI start-up."""
 
 from __future__ import annotations
 

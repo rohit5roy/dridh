@@ -1,4 +1,4 @@
-"""`dridh upgrade` updates only what Dridh owns, keeps user configuration and is idempotent (plan section 2.7)."""
+"""`dridh upgrade` updates only what Dridh owns, keeps user configuration and is idempotent."""
 
 from __future__ import annotations
 

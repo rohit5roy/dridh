@@ -38,7 +38,7 @@ class IndexingConfig(BaseModel):
 
 
 class ContainersConfig(BaseModel):
-    """Where story tests run (plan 15.6-15.8). ``auto``: in a container when Docker is available, else on the host;
+    """Where story tests run. ``auto``: in a container when Docker is available, else on the host;
     ``docker``: always in a container (refuse without Docker); ``off``: on the host."""
 
     model_config = ConfigDict(extra="forbid")
@@ -100,14 +100,14 @@ class DeliveryConfig(BaseModel):
 class ReviewConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    # Deprecated and ignored: Jev thresholds are per checkpoint under ``jev.thresholds`` (D-P9-04). Kept so existing
+    # Deprecated and ignored: Jev thresholds are per checkpoint under ``jev.thresholds``. Kept so existing
     # dridh.yaml files still load.
     readiness_threshold: int = 90
     require_checklist_complete: bool = True
     require_explicit_human_approval: bool = True
 
 
-# Per-checkpoint Jev readiness thresholds (decision D-P9-04). Below a threshold the checkpoint is flagged for the human
+# Per-checkpoint Jev readiness thresholds. Below a threshold the checkpoint is flagged for the human
 # reviewer; Jev stays advisory and never blocks. Defaults sit just under the lowest readiness Jev gave documents that
 # were later approved in real runs (2026-11-09), so only outliers are flagged.
 DEFAULT_JEV_THRESHOLDS = {

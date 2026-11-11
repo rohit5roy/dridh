@@ -1,4 +1,4 @@
-"""Workers that need no tools still offer one inert `read` rule (D-P18-02) and nothing else."""
+"""Workers that need no tools still offer one inert `read` rule and nothing else."""
 
 from __future__ import annotations
 

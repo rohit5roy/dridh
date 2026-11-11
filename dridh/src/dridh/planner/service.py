@@ -1701,7 +1701,7 @@ class PlannerService:
         }
 
     def approve(self, session_id: str, *, reviewer: str, confirmation: str) -> dict[str, Any]:
-        """Record the human, revision-bound approval that enables execution (D-P15-01). The checklist must be ticked first."""
+        """Record the human, revision-bound approval that enables execution. The checklist must be ticked first."""
         challenge = self.approval_challenge(session_id)
         if confirmation != challenge["confirmation"]:
             raise DridhError(ErrorCode.APPROVAL_REQUIRED, "The plan approval confirmation did not match.")
