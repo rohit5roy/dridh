@@ -20,6 +20,7 @@ import { createEffect, createMemo, createSignal, For, Show } from "solid-js"
 import { execFile, spawn } from "node:child_process"
 // Shared with the server bridge; the installer places dist/ beside tui/ (see src/executable.ts).
 import { missingExecutableMessage, resolveDridhExecutable } from "../dist/executable.js"
+import { readCliResult, WORKSPACE_NOT_FOUND } from "../dist/cli-result.js"
 
 type Json = any
 
@@ -33,13 +34,11 @@ function dridhJson(args: string[], cwd: string): Promise<Json> {
     execFile(executable, [...args, "--json", "--project", cwd], { cwd, timeout: 60_000, maxBuffer: 8 << 20, env: { ...process.env, DRIDH_OUTPUT: "json" } },
       (error, stdout, stderr) => {
         if ((error as NodeJS.ErrnoException | null)?.code === "ENOENT") return reject(new Error(missingExecutableMessage(executable)))
-        let parsed: Json
-        try { parsed = JSON.parse(stdout) } catch { parsed = undefined }
-        if (error || parsed === undefined || parsed?.ok === false) {
-          const message = parsed?.error?.message || (stderr || error?.message || "dridh returned invalid JSON").toString().trim().slice(-400)
-          return reject(new Error(message))
+        try {
+          resolve(readCliResult(String(stdout ?? ""), String(stderr ?? ""), Boolean(error), error?.message))
+        } catch (failure) {
+          reject(failure)
         }
-        resolve(parsed?.data ?? parsed)
       })
   })
 }
@@ -134,6 +133,8 @@ export default Plugin.define({
     const c = palette(ctx.themeMode)
     const [state, setState] = createSignal<Json>(undefined)
     const [error, setError] = createSignal<string | undefined>(undefined)
+    /** True when this project has no Dridh workspace yet: a first run, not an error. /dridh offers to set it up. */
+    const [unset, setUnset] = createSignal(false)
     const [settings, setSettings] = ctx.storage.store("dridh.tui", { initial: { reviewer: "" } })
     let busy = false
     let quietUntil = 0
@@ -153,9 +154,16 @@ export default Plugin.define({
         }
         lastAction = action ?? ""
         setState(next)
+        setUnset(false)
         setError(undefined)
       } catch (e) {
-        setError((e as Error).message)
+        if ((e as { code?: string }).code === WORKSPACE_NOT_FOUND) {
+          setState(undefined)
+          setUnset(true)
+          setError(undefined)
+        } else {
+          setError((e as Error).message)
+        }
       } finally {
         busy = false
       }
@@ -173,6 +181,33 @@ export default Plugin.define({
       if (!name?.trim()) return undefined
       await setSettings((draft) => { draft.reviewer = name.trim() })
       return name.trim()
+    }
+
+    /** First run in a project: ask whether it is a new or an existing codebase (never guessed), then create the workspace. */
+    async function setUp(): Promise<void> {
+      const mode = await ctx.ui.dialog.select<"new" | "existing">({
+        title: "Dridh isn't set up in this project",
+        options: [
+          { title: "New codebase", value: "new", description: "Start from an idea" },
+          { title: "Existing codebase", value: "existing", description: "Add to the code here" },
+        ],
+      })
+      if (!mode) return
+      try {
+        await dridhJson(["init", "--mode", mode], root)
+        quiet()
+        await refresh()
+        ctx.ui.toast.show({ title: "Dridh is set up", message: "Press Shift+Tab for the Dridh Coordinator and tell it what you want to build.", variant: "success" })
+        show({ name: "overview" })
+      } catch (e) {
+        ctx.ui.toast.show({ title: "Dridh setup failed", message: (e as Error).message, variant: "error" })
+      }
+    }
+
+    /** /dridh: the overview, or the setup choice when the project has no workspace yet. */
+    function overview(): void {
+      if (unset()) void setUp()
+      else show({ name: "overview" })
     }
 
     /** Suspend OpenCode's screen and let the human run a Dridh confirmation command on the real terminal. */
@@ -341,7 +376,7 @@ export default Plugin.define({
         }
       })
       return (
-        <Show when={feature()} fallback={<text fg={c.muted}>{error() ?? "No Dridh feature in this project yet. Tell the Coordinator what you want to build."}</text>}>
+        <Show when={feature()} fallback={<text fg={c.muted}>{error() ?? (unset() ? "Dridh isn't set up in this project yet. Type /dridh to set it up." : "No Dridh feature in this project yet. Press Shift+Tab for the Dridh Coordinator and tell it what you want to build.")}</text>}>
           <box flexDirection={props.narrow ? "column" : "row"} gap={props.narrow ? 1 : 4} flexGrow={1}>
             <box flexDirection="column" width={props.narrow ? undefined : 30} flexShrink={0}>
               <text fg={c.muted}>STAGES</text>
@@ -692,7 +727,12 @@ export default Plugin.define({
     })
 
     const statusLine = (short = false) => (
-      <Show when={feature()} fallback={<Show when={error()}><text fg={c.bad}>dridh · {error()!.slice(0, 72)}</text></Show>}>
+      <Show when={feature()} fallback={
+        <Show when={!error()} fallback={<text fg={c.bad}>dridh · {error()!.slice(0, 72)}</text>}>
+          <Show when={unset()} fallback={<Show when={state()}><text fg={c.muted}>{short ? "dridh · ready" : "dridh · ready · press Shift+Tab for the Dridh Coordinator and say what to build"}</text></Show>}>
+            <text fg={c.muted}>{short ? "dridh · not set up" : "dridh · not set up · type /dridh to start"}</text>
+          </Show>
+        </Show>}>
         <text fg={c.accent}>dridh <span style={{ fg: c.muted }}>·</span> {feature().slug} <span style={{ fg: c.muted }}>·</span> {feature().stage_label}
           <Show when={action() && action().kind !== "wait"}><span style={{ fg: c.warn }}>{short ? " · ⚑ needs you" : ` · ⚑ ${action().text}`}</span></Show>
         </text>
@@ -781,7 +821,7 @@ export default Plugin.define({
       mode: "global",
       commands: [
         { id: "dridh.overview", title: "Dridh: overview", description: "Feature stages, documents, runs and what needs you", group: "Dridh", palette: true, slash: { name: "dridh" },
-          run: () => show({ name: "overview" }) },
+          run: () => overview() },
         { id: "dridh.next", title: "Dridh: do the next human step", description: "Checklist, approval, lot review, start or complete", group: "Dridh", palette: true, slash: { name: "dridh-next" },
           run: () => void next() },
         { id: "dridh.review", title: "Dridh: read a document", description: "Use Cases, technical design or plan", group: "Dridh", palette: true,

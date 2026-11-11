@@ -46,6 +46,9 @@ OpenCode configuration, backing up every file it changes, and never changes your
 
 ## Quick start
 
+Open OpenCode in your project and type `/dridh`. The first time, it asks whether this is a new or an existing
+codebase and sets the project up. Then press Shift+Tab until the agent reads Dridh/Coordinator. From a terminal, the same is:
+
 ```bash
 cd your-project
 dridh init --mode existing      # or --mode new for an empty project
