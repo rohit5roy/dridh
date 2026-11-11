@@ -1,17 +1,24 @@
-# Compatibility with the newest OpenCode release.
+# Compatibility with the newest OpenCode release, every week.
 #
-# Dridh supports OpenCode 2.2.5 or later (D-P18-03) while ci.yml tests the lock-pinned release. This workflow installs
-# the newest @opencode/cli and @opencode/plugin from npm and runs the plugin tests and the Category A suite against
-# them, so a breaking OpenCode release shows up before users meet it. It is never a merge gate: run it by hand, and it
-# runs once a month. When it passes on a newer release, move the lock in .github/scripts/opencode-cli (and the plugin's
-# @opencode/plugin) to that release in a normal pull request.
+# Dridh supports OpenCode 2.2.5 or later while ci.yml tests the lock-pinned release (.github/scripts/opencode-cli). This
+# workflow installs the newest @opencode/cli (and, for the plugin build, @opencode/plugin) from npm and runs, against it:
+#   - the plugin tests (all of tests/*.test.mjs) built with the newest plugin SDK,
+#   - the whole Category A suite (as ci.yml, including the real Docker container tests),
+#   - the TUI smoke test: the packaged wheel installed, the newest OpenCode driven through a first run, screenshots kept.
+# The Docker full-system E2E is not repeated here: its image installs the pinned OpenCode by design.
+#
+# It is never a merge gate. A failure means the newest OpenCode breaks Dridh: GitHub emails the repository owner about a
+# failed scheduled run, and the job summary names the versions. When it passes on a release newer than the pin, move the
+# pin in .github/scripts/opencode-cli (and the plugin's @opencode/plugin) in a normal pull request.
+#
+# The weekly schedule runs only in the public repository (Actions minutes are free there); anywhere else, run it by hand.
 
-name: OpenCode latest (compatibility)
+name: OpenCode latest (weekly compatibility)
 
 on:
   workflow_dispatch:
   schedule:
-    - cron: "17 4 1 * *"
+    - cron: "23 5 * * 1"   # Mondays 05:23 UTC
 
 permissions:
   contents: read
@@ -21,10 +28,50 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  opencode-latest:
-    name: Plugin and Category A tests on the newest OpenCode
+  versions:
+    name: Newest OpenCode on npm
+    if: github.event_name != 'schedule' || github.repository == 'rohit5roy/dridh'
     runs-on: ubuntu-24.04
-    timeout-minutes: 40
+    timeout-minutes: 5
+    outputs:
+      cli: ${{ steps.npm.outputs.cli }}
+      plugin: ${{ steps.npm.outputs.plugin }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Look up the newest and the pinned versions
+        id: npm
+        shell: bash
+        run: |
+          set -euo pipefail
+          cli=$(npm view @opencode/cli version)
+          plugin=$(npm view @opencode/plugin version)
+          pinned=$(node -p "require('./.github/scripts/opencode-cli/package.json').dependencies['@opencode/cli']")
+          { echo "cli=$cli"; echo "plugin=$plugin"; } >> "$GITHUB_OUTPUT"
+          {
+            echo "## OpenCode under test"
+            echo
+            echo "| | Version |"
+            echo "|---|---|"
+            echo "| newest @opencode/cli | $cli |"
+            echo "| newest @opencode/plugin | $plugin |"
+            echo "| pinned in CI | $pinned |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$cli" != "$pinned" ]; then
+            echo "A newer OpenCode than the CI pin is out. If this run passes, move the pin in a pull request." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  tests:
+    name: Plugin and Category A tests on the newest OpenCode
+    needs: versions
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      CLI: ${{ needs.versions.outputs.cli }}
+      PLUGIN: ${{ needs.versions.outputs.plugin }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -43,11 +90,10 @@ jobs:
           mkdir -p "$RUNNER_TEMP/opencode-latest"
           cd "$RUNNER_TEMP/opencode-latest"
           npm init -y >/dev/null
-          npm install --no-audit --no-fund @opencode/cli@latest
-          version="$(./node_modules/.bin/opencode --version)"
-          echo "OpenCode under test: $version" | tee -a "$GITHUB_STEP_SUMMARY"
+          npm install --no-audit --no-fund "@opencode/cli@$CLI"
+          ./node_modules/.bin/opencode --version
 
-      - name: Build the plugin against the newest plugin SDK and run its tests
+      - name: Build the plugin against the newest plugin SDK and run all its tests
         shell: bash
         working-directory: dridh/opencode/plugins/dridh-bridge
         env:
@@ -55,10 +101,9 @@ jobs:
         run: |
           set -euo pipefail
           npm ci --no-audit --no-fund
-          npm install --no-audit --no-fund --no-save @opencode/plugin@latest
-          echo "Plugin SDK under test: $(node -p "require('@opencode/plugin/package.json').version")" | tee -a "$GITHUB_STEP_SUMMARY"
+          npm install --no-audit --no-fund --no-save "@opencode/plugin@$PLUGIN"
           npm run build
-          node --test --test-reporter=spec tests/bridge-client.test.mjs tests/tui-plugin.test.mjs
+          node --test --test-reporter=spec tests/*.test.mjs
 
       - name: Category A tests against the newest OpenCode CLI
         shell: bash
@@ -69,3 +114,62 @@ jobs:
           set -euo pipefail
           uv run python scripts/build_assets.py
           uv run pytest -m "not live and not docker" -q -rs
+
+  tui-smoke:
+    name: TUI smoke test in the newest OpenCode
+    needs: versions
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      CLI: ${{ needs.versions.outputs.cli }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up the toolchain
+        uses: ./.github/actions/setup
+        with:
+          node: "true"
+
+      - name: Build and install the wheel as a release would ship it (plugin built with the pinned SDK)
+        shell: bash
+        run: |
+          set -euo pipefail
+          command -v tmux >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq tmux; }
+          (cd dridh/opencode/plugins/dridh-bridge && npm ci --no-audit --no-fund && npm run build)
+          (cd dridh && uv run python scripts/build_assets.py && DRIDH_SKIP_ASSET_BUILD=1 uv build --wheel --out-dir "$RUNNER_TEMP/dist")
+          python3 -m venv "$RUNNER_TEMP/tui-venv"
+          "$RUNNER_TEMP/tui-venv/bin/python" -m pip install --quiet "$RUNNER_TEMP"/dist/dridh-*.whl
+
+      - name: Install the newest OpenCode CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/opencode-latest"
+          cd "$RUNNER_TEMP/opencode-latest"
+          npm init -y >/dev/null
+          npm install --no-audit --no-fund "@opencode/cli@$CLI"
+
+      - name: First run in the newest OpenCode
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run --no-project --quiet --with pillow==13.0.0 python .github/scripts/tui_smoke.py \
+            --opencode "$RUNNER_TEMP/opencode-latest/node_modules/.bin/opencode" \
+            --dridh "$RUNNER_TEMP/tui-venv/bin/dridh" --out "$RUNNER_TEMP/tui-smoke" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Scan the screens for credential material
+        if: always()
+        shell: bash
+        run: python3 .github/scripts/scan_secrets.py --paths "$RUNNER_TEMP/tui-smoke"
+
+      - name: Upload the screenshots
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: tui-smoke-screens-opencode-latest
+          path: ${{ runner.temp }}/tui-smoke
+          if-no-files-found: warn
+          retention-days: 30

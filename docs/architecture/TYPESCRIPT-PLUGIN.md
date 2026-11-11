@@ -14,9 +14,11 @@ The plugin is the OpenCode side of Dridh. It registers one tool that forwards ca
 | `src/index.ts` | OpenCode plugin and typed tool registration |
 | `src/bridge-client.ts` | Protocol v1 client: transport, validation, timeout, cancellation, redaction |
 | `src/executable.ts` | Finds the `dridh` command for the server bridge and the TUI |
+| `src/cli-result.ts` | Reads a `dridh ... --json` result for the TUI: data from stdout, the error envelope from stderr |
 | `tui/index.tsx` | Terminal UI: sidebar, session panel, status line and slash commands |
 | `tests/bridge-client.test.mjs` | Bridge client tests (PL-01 to PL-23, REL-02) |
 | `tests/executable.test.mjs` | Executable resolution tests |
+| `tests/cli-result.test.mjs` | Result and error parsing tests, including the real CLI without a workspace |
 | `tests/tui-plugin.test.mjs` | TUI build, wiring and command tests |
 | `tests/fake-bridge.mjs` | Deterministic fake bridge for failure injection |
 | `package.json` / `package-lock.json` | Pinned SDK, TypeScript and Node types |
@@ -83,12 +85,13 @@ Exit code `0` is not success by itself. `ok: false` with exit `0` is mapped to `
 
 - **Session panel.** Inside a session, the Dridh views (overview, checklist, document, execution lot) open in the session panel beside the conversation. On the home screen they open as full pages. Documents render through `glow` when it is installed, with Mermaid diagrams drawn as text.
 - **Sidebar.** A Dridh section lists the stages, the documents, the open checklist, the next step and the actions. Each line can be clicked, or run by its command.
-- **Status line.** A one-line status shows in the home screen footer, and in the prompt footer while a session is open.
-- **Slash commands.** `/dridh` opens the overview; `/dridh-next` does the next human step; `/dridh-review` opens a document (`use cases`, `design` or `plan`); `/dridh-checklist` opens the review checklist; `/dridh-approve` approves the document under review; `/dridh-lot` opens the execution lot review. The same actions are in the command palette.
+- **First run.** In a project without a Dridh workspace, `/dridh` asks whether the project is a new or an existing codebase (the person chooses; the mode is never guessed), runs `dridh init --mode ...` and opens the overview. Until then the status line reads `dridh · not set up · type /dridh to start`.
+- **Status line.** A one-line status shows in the home screen footer, and in the prompt footer while a session is open: the feature and its stage, `dridh · ready` when the project is set up but has no feature yet, or an error as its message (never raw JSON).
+- **Slash commands.** `/dridh` opens the overview (or the first-run setup); `/dridh-next` does the next human step; `/dridh-review` opens a document (`use cases`, `design` or `plan`); `/dridh-checklist` opens the review checklist; `/dridh-approve` approves the document under review; `/dridh-lot` opens the execution lot review. The same actions are in the command palette.
 - **Human confirmations.** Approvals, lot verdicts, starting a run and completing a feature are typed confirmations. For those, the plugin suspends OpenCode's screen, as OpenCode does for `$EDITOR`, and hands the real terminal to the Dridh command. The person types the confirmation into Dridh's own prompt. The plugin never sees or types it. Agents have no tool that reaches any of this.
 - **Checklist ticks** run `dridh reviews checklist`, the same record the CLI keeps.
 
-The TUI finds `dridh` with the same resolver as the server bridge. It imports `dist/executable.js`, which the installer places beside `tui/`. `tests/tui-plugin.test.mjs` checks that every `dridh` command the TUI starts goes through that resolver, and that the TUI only shells out to the `dridh` CLI (and `glow`).
+The TUI finds `dridh` with the same resolver as the server bridge. It imports `dist/executable.js` and `dist/cli-result.js`, which the installer places beside `tui/`. The CLI writes a failure as a JSON envelope on stderr; `cli-result.ts` turns it into its message and code, so `WORKSPACE_NOT_FOUND` is recognised as a first run. `tests/tui-plugin.test.mjs` checks that every `dridh` command the TUI starts goes through that resolver, and that the TUI only shells out to the `dridh` CLI (and `glow`).
 
 ## Build and test
 
@@ -98,7 +101,7 @@ npm ci
 npm test
 ```
 
-`npm test` builds with `tsc` and runs the Node test suite: 36 tests in three files. `bridge-client.test.mjs` uses the real `dridh bridge` for PL-01, PL-02 and PL-04, and a fake bridge for the rest. The real bridge path can be set with `DRIDH_BIN`.
+`npm test` builds with `tsc` and runs the Node test suite: 43 tests in four files. `bridge-client.test.mjs` uses the real `dridh bridge` for PL-01, PL-02 and PL-04, and a fake bridge for the rest. The real bridge path can be set with `DRIDH_BIN`.
 
 ## Hooks
 

@@ -13,7 +13,7 @@
 #
 # Toolchain versions and caches live in .github/actions/setup. Third-party actions are pinned to commit SHAs (kept
 # current by Dependabot). OpenCode is lock-pinned to 2.2.6 in .github/scripts/opencode-cli (Dridh supports 2.2.5 or later,
-# D-P18-03). Live model tests are a separate opt-in workflow (live-models.yml). Releases: release.yml.
+# see the README). Live model tests are a separate opt-in workflow (live-models.yml). Releases: release.yml.
 # Skipped tests are inventoried in each job summary and never counted as passed.
 
 name: CI
