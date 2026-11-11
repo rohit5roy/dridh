@@ -1,6 +1,10 @@
 # Keep the E2E build context small and free of host state.
 .git
-.github
+# .github is excluded except the pinned OpenCode CLI manifest the E2E image installs.
+.github/*
+!.github/scripts
+.github/scripts/*
+!.github/scripts/opencode-cli
 docs
 verification
 spikes

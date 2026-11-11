@@ -7,7 +7,7 @@ local databases and plugin sources. Prints a JSON report and exits 1 on any
 violation.
 
 Usage:
-    scripts/ci/check_wheel.py <path-to-wheel>
+    .github/scripts/check_wheel.py <path-to-wheel>
 """
 from __future__ import annotations
 

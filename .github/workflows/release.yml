@@ -137,7 +137,7 @@ jobs:
           VERSION: ${{ needs.plan.outputs.version }}
         run: |
           set -euo pipefail
-          export PATH="$PWD/scripts/ci/opencode-cli/node_modules/.bin:$PATH"
+          export PATH="$PWD/.github/scripts/opencode-cli/node_modules/.bin:$PATH"
           export UV_TOOL_DIR="$RUNNER_TEMP/tools" UV_TOOL_BIN_DIR="$RUNNER_TEMP/bin" OPENCODE_CONFIG_DIR="$RUNNER_TEMP/opencode"
           mkdir -p "$OPENCODE_CONFIG_DIR" && echo '{}' > "$OPENCODE_CONFIG_DIR/opencode.json"
           ./install.sh --wheel "$RUNNER_TEMP/dist/dridh-$VERSION-py3-none-any.whl"
@@ -229,5 +229,5 @@ jobs:
           next=$(python3 dridh/scripts/version.py next "$VERSION")
           python3 dridh/scripts/version.py set "$next"
           git commit -qam "Start $next (after releasing $VERSION)"
-          url=$(RELEASE_BOT_TOKEN="$RELEASE_BOT_TOKEN" scripts/ci/release_pr.sh "version-$next" "Start $next (after releasing $VERSION)")
+          url=$(RELEASE_BOT_TOKEN="$RELEASE_BOT_TOKEN" .github/scripts/release_pr.sh "version-$next" "Start $next (after releasing $VERSION)")
           echo "Opened $url to start $next; it merges when CI and the CLA check pass." >> "$GITHUB_STEP_SUMMARY"

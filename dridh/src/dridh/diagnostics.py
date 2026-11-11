@@ -71,7 +71,7 @@ def _first_line(text: str) -> str:
     return ""
 
 
-OPENCODE_MINIMUM = (2, 2, 5)  # oldest supported OpenCode V2 release; CI tests the lock-pinned version (scripts/ci/opencode-cli)
+OPENCODE_MINIMUM = (2, 2, 5)  # oldest supported OpenCode V2 release; CI tests the lock-pinned version (.github/scripts/opencode-cli)
 
 
 def _version_tuple(text: str) -> tuple[int, ...] | None:

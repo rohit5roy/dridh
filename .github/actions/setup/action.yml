@@ -37,7 +37,7 @@ runs:
         cache: npm
         cache-dependency-path: |
           dridh/opencode/plugins/dridh-bridge/package-lock.json
-          scripts/ci/opencode-cli/package-lock.json
+          .github/scripts/opencode-cli/package-lock.json
 
     - name: Check the toolchain versions
       shell: bash
@@ -54,7 +54,7 @@ runs:
     - name: Install the pinned OpenCode CLI
       if: inputs.opencode == 'true'
       shell: bash
-      working-directory: scripts/ci/opencode-cli
+      working-directory: .github/scripts/opencode-cli
       run: |
         set -euo pipefail
         npm ci --no-audit --no-fund

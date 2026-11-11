@@ -1,4 +1,4 @@
-"""scripts/ci/release_pr.sh pushes the release workflow's version step with RELEASE_BOT_TOKEN only.
+""".github/scripts/release_pr.sh pushes the release workflow's version step with RELEASE_BOT_TOKEN only.
 
 actions/checkout leaves the job's GITHUB_TOKEN configured as an extra Authorization header for github.com. If the
 script adds its own header on top, git sends both and GitHub rejects the push (HTTP 400, exit 128), which is how every
@@ -18,7 +18,7 @@ from pathlib import Path
 
 import pytest
 
-SCRIPT = Path(__file__).resolve().parents[3] / "scripts" / "ci" / "release_pr.sh"
+SCRIPT = Path(__file__).resolve().parents[3] / ".github" / "scripts" / "release_pr.sh"
 
 pytestmark = pytest.mark.skipif(shutil.which("git") is None or shutil.which("bash") is None, reason="needs git and bash")
 

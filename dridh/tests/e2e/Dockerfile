@@ -4,7 +4,7 @@
 #
 # Pinned: Python 3.13.18 (base image), Node.js 24.22.2 with its bundled npm 11.19.1
 # (verified against the official SHASUMS256 list), uv 0.13.7, OpenCode CLI 2.2.6
-# (lock-pinned in scripts/ci/opencode-cli). The image contains no credentials, no
+# (lock-pinned in .github/scripts/opencode-cli). The image contains no credentials, no
 # host configuration and no Docker socket. Build context: the repository root.
 
 FROM python:3.13.18-slim-bookworm AS runtime-base
@@ -56,7 +56,7 @@ RUN cd /src/dridh \
 # ---- OpenCode CLI, pinned by the lock file used by Phase 1.5 CI
 FROM runtime-base AS opencode
 
-COPY scripts/ci/opencode-cli/package.json scripts/ci/opencode-cli/package-lock.json /opt/opencode-cli/
+COPY .github/scripts/opencode-cli/package.json .github/scripts/opencode-cli/package-lock.json /opt/opencode-cli/
 RUN cd /opt/opencode-cli \
  && npm ci --no-audit --no-fund \
  && test "$(./node_modules/.bin/opencode --version)" = "opencode v2.2.6"

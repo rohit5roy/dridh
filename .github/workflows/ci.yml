@@ -10,7 +10,7 @@
 #      gate           the one required check for branch protection
 #
 # Toolchain versions and caches live in .github/actions/setup. Third-party actions are pinned to commit SHAs (kept
-# current by Dependabot). OpenCode is lock-pinned to 2.2.6 in scripts/ci/opencode-cli (Dridh supports 2.2.5 or later,
+# current by Dependabot). OpenCode is lock-pinned to 2.2.6 in .github/scripts/opencode-cli (Dridh supports 2.2.5 or later,
 # D-P18-03). Live model tests are a separate opt-in workflow (live-models.yml). Releases: release.yml.
 # Skipped tests are inventoried in each job summary and never counted as passed.
 
@@ -81,7 +81,7 @@ jobs:
 
       - name: Scan tracked files for committed credentials
         shell: bash
-        run: python3 scripts/ci/scan_secrets.py --tracked --root "$GITHUB_WORKSPACE"
+        run: python3 .github/scripts/scan_secrets.py --tracked --root "$GITHUB_WORKSPACE"
 
       - name: Lint install.sh (shellcheck, pinned through PyPI)
         shell: bash
@@ -141,7 +141,7 @@ jobs:
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/dist"
           DRIDH_SKIP_ASSET_BUILD=1 uv build --wheel --out-dir "$RUNNER_TEMP/dist"
-          python3 "$GITHUB_WORKSPACE/scripts/ci/check_wheel.py" "$RUNNER_TEMP"/dist/dridh-*.whl
+          python3 "$GITHUB_WORKSPACE/.github/scripts/check_wheel.py" "$RUNNER_TEMP"/dist/dridh-*.whl
           (cd "$RUNNER_TEMP/dist" && sha256sum ./*.whl) | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Upload the wheel
@@ -182,7 +182,7 @@ jobs:
         shell: bash
         working-directory: dridh
         env:
-          DRIDH_OPENCODE_BIN: ${{ github.workspace }}/scripts/ci/opencode-cli/node_modules/.bin/opencode
+          DRIDH_OPENCODE_BIN: ${{ github.workspace }}/.github/scripts/opencode-cli/node_modules/.bin/opencode
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/evidence"
@@ -194,13 +194,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 scripts/ci/summarize_results.py junit "$RUNNER_TEMP/evidence/pytest-category-a.xml" \
+          python3 .github/scripts/summarize_results.py junit "$RUNNER_TEMP/evidence/pytest-category-a.xml" \
             --json "$RUNNER_TEMP/evidence/summary-python.json" | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Scan test evidence for credential material
         if: always()
         shell: bash
-        run: python3 scripts/ci/scan_secrets.py --paths "$RUNNER_TEMP/evidence"
+        run: python3 .github/scripts/scan_secrets.py --paths "$RUNNER_TEMP/evidence"
 
       - name: Upload test evidence
         if: always()
@@ -241,7 +241,7 @@ jobs:
       - name: Summarise plugin test results
         if: always()
         shell: bash
-        run: python3 scripts/ci/summarize_results.py spec "$RUNNER_TEMP/plugin-node.log" | tee -a "$GITHUB_STEP_SUMMARY"
+        run: python3 .github/scripts/summarize_results.py spec "$RUNNER_TEMP/plugin-node.log" | tee -a "$GITHUB_STEP_SUMMARY"
 
   packaging:
     name: "2 · Installed wheel (Category A)"
@@ -302,7 +302,7 @@ jobs:
       - name: Scan E2E evidence for credential material
         if: always()
         shell: bash
-        run: python3 scripts/ci/scan_secrets.py --paths "$RUNNER_TEMP/e2e"
+        run: python3 .github/scripts/scan_secrets.py --paths "$RUNNER_TEMP/e2e"
 
       - name: Upload E2E evidence
         if: always()
