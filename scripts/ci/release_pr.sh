@@ -15,7 +15,11 @@ mode=${3:-}
 : "${RELEASE_BOT_TOKEN:?RELEASE_BOT_TOKEN is not set; create it and add it as a repository secret}"
 
 auth=$(printf 'x-access-token:%s' "$RELEASE_BOT_TOKEN" | base64 | tr -d '\n')
-git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth" push -q origin "HEAD:refs/heads/$branch"
+# actions/checkout already stores the job's GITHUB_TOKEN as an extra Authorization header for this host. Adding a second
+# one makes git send both, and GitHub rejects the push (HTTP 400, git exits 128). The empty value clears the inherited
+# header first, so only RELEASE_BOT_TOKEN is sent.
+header="http.${GITHUB_SERVER_URL:-https://github.com}/.extraheader"
+git -c "$header=" -c "$header=AUTHORIZATION: basic $auth" push -q origin "HEAD:refs/heads/$branch"
 
 export GH_TOKEN=$RELEASE_BOT_TOKEN
 url=$(gh pr create --base main --head "$branch" --title "$title" --body "Automated release step. It merges once CI and the CLA check pass.")
