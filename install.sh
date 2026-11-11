@@ -258,7 +258,7 @@ esac
 python3 - "$wheel" <<'PY' || die "the wheel has no packaged OpenCode plugin; rebuild it (see dridh/hatch_build.py)"
 import sys, zipfile
 names = zipfile.ZipFile(sys.argv[1]).namelist()
-required = ("dridh/assets/plugin/dridh-bridge/dist/index.js", "dridh/assets/plugin/dridh-bridge/tui/index.tsx")
+required = ("dridh/assets/plugin/dridh-bridge/dist/index.js", "dridh/assets/plugin/dridh-bridge/dist/executable.js", "dridh/assets/plugin/dridh-bridge/tui/index.tsx")
 sys.exit(0 if all(r in names for r in required) and any(n.startswith("dridh/assets/agents/dridh/") for n in names) else 1)
 PY
 
