@@ -47,3 +47,16 @@ test("every dridh command the TUI starts goes through the resolver", () => {
   assert.ok(source.includes('["-c", script, bin(), ...argv]'), "the confirmation terminal runs the resolved command")
   assert.ok(source.includes("missingExecutableMessage(executable)"), "a missing command gets a message that says how to fix it")
 })
+
+test("a project without a workspace is a first run: /dridh offers setup instead of showing an error", () => {
+  assert.ok(source.includes('from "../dist/cli-result.js"'), "results are read by the shared parser")
+  assert.ok(existsSync(new URL("../dist/cli-result.js", import.meta.url)), "npm run build produces dist/cli-result.js")
+  assert.ok(source.includes("readCliResult(String(stdout"), "stdout and stderr are both read")
+  assert.ok(!source.includes("JSON.parse(stdout)"), "no second, stdout-only parser")
+  assert.ok(source.includes("=== WORKSPACE_NOT_FOUND"), "a missing workspace is recognised by its code")
+  assert.match(source, /slash: \{ name: "dridh" \},\s*run: \(\) => overview\(\)/, "/dridh goes through the setup check")
+  assert.match(source, /if \(unset\(\)\) void setUp\(\)/)
+  assert.ok(source.includes('dridhJson(["init", "--mode", mode], root)'), "setup runs dridh init with the chosen mode")
+  assert.ok(source.includes('value: "new"') && source.includes('value: "existing"'), "the person chooses; the mode is never guessed")
+  assert.ok(source.includes("dridh · not set up · type /dridh to start"), "the status line explains how to start")
+})

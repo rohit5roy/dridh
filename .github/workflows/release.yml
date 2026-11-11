@@ -131,7 +131,15 @@ jobs:
           scripts/build_release.sh "$RUNNER_TEMP/dist"
           test -f "$RUNNER_TEMP/dist/dridh-${{ needs.plan.outputs.version }}-py3-none-any.whl"
 
-      - name: Smoke test the wheel with install.sh
+      - name: Build the embedding-model archive (FastEmbed's own download, checked offline)
+        shell: bash
+        run: |
+          set -euo pipefail
+          fastembed=$(sed -n 's/^FASTEMBED_VERSION="\(.*\)"$/\1/p' install.sh)
+          uv run --no-project --python 3.13 --with "fastembed==$fastembed" python .github/scripts/build_model_archive.py \
+            --out "$RUNNER_TEMP/dist" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Smoke test the wheel and the model with install.sh
         shell: bash
         env:
           VERSION: ${{ needs.plan.outputs.version }}
@@ -139,8 +147,12 @@ jobs:
           set -euo pipefail
           export PATH="$PWD/.github/scripts/opencode-cli/node_modules/.bin:$PATH"
           export UV_TOOL_DIR="$RUNNER_TEMP/tools" UV_TOOL_BIN_DIR="$RUNNER_TEMP/bin" OPENCODE_CONFIG_DIR="$RUNNER_TEMP/opencode"
+          export FASTEMBED_CACHE_PATH="$RUNNER_TEMP/model-cache"
           mkdir -p "$OPENCODE_CONFIG_DIR" && echo '{}' > "$OPENCODE_CONFIG_DIR/opencode.json"
-          ./install.sh --wheel "$RUNNER_TEMP/dist/dridh-$VERSION-py3-none-any.whl"
+          ./install.sh --wheel "$RUNNER_TEMP/dist/dridh-$VERSION-py3-none-any.whl" --model "$RUNNER_TEMP/dist/dridh-embedding-model.tar.gz"
+          # Dridh's own provider loads the unpacked model with Hugging Face unreachable.
+          HF_ENDPOINT=http://127.0.0.1:9 HTTPS_PROXY=http://127.0.0.1:9 "$RUNNER_TEMP/tools/dridh/bin/python" -c \
+            "from dridh.code_reacher.embeddings import FastEmbedProvider as P; v = P().embed(['validate an email address']); assert len(v[0]) == 384; print('model loads offline')"
           "$RUNNER_TEMP/bin/dridh" --version | grep -q "dridh $VERSION"
           "$RUNNER_TEMP/bin/dridh" doctor --json | python3 -c "import json,sys; d=json.load(sys.stdin); bad=[c['id'] for c in d['checks'] if c['id'] in ('opencode','runtime','plugin-entry','default-agent') and c['status']!='PASS']; print(bad); sys.exit(1 if bad else 0)"
           "$RUNNER_TEMP/bin/dridh" uninstall
@@ -153,6 +165,8 @@ jobs:
           path: |
             ${{ runner.temp }}/dist/dridh-*.whl
             ${{ runner.temp }}/dist/dridh-*.whl.sha256
+            ${{ runner.temp }}/dist/dridh-embedding-model.tar.gz
+            ${{ runner.temp }}/dist/dridh-embedding-model.tar.gz.sha256
           if-no-files-found: error
           retention-days: 30
 
@@ -208,7 +222,8 @@ jobs:
           flags=(--title "Dridh $VERSION" --generate-notes --verify-tag)
           if [ "$PRERELEASE" = true ]; then flags+=(--prerelease); else flags+=(--latest); fi
           gh release create "v$VERSION" "${flags[@]}" \
-            "$RUNNER_TEMP/dist/dridh-$VERSION-py3-none-any.whl" "$RUNNER_TEMP/dist/dridh-$VERSION-py3-none-any.whl.sha256" install.sh
+            "$RUNNER_TEMP/dist/dridh-$VERSION-py3-none-any.whl" "$RUNNER_TEMP/dist/dridh-$VERSION-py3-none-any.whl.sha256" \
+            "$RUNNER_TEMP/dist/dridh-embedding-model.tar.gz" "$RUNNER_TEMP/dist/dridh-embedding-model.tar.gz.sha256" install.sh
           echo "Published v$VERSION." >> "$GITHUB_STEP_SUMMARY"
 
       - name: Open the pull request that moves main to the next version

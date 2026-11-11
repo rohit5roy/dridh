@@ -32,7 +32,8 @@ curl -fsSL https://github.com/rohit5roy/dridh/releases/latest/download/install.s
 ```
 
 The installer checks everything first and shows its plan, then installs what is missing: the `dridh` command (through
-[uv](https://docs.astral.sh/uv/), with Python 3.13), local embeddings for code search, and
+[uv](https://docs.astral.sh/uv/), with Python 3.13), local embeddings for code search (the model comes with the
+release, checksum-verified, into `~/.cache/dridh/fastembed`, so it needs no Hugging Face access), and
 [glow](https://github.com/charmbracelet/glow) for rendered documents. It adds the Dridh plugin and agents to your
 OpenCode configuration, backing up every file it changes, and never changes your default agent. It finishes with
 `dridh doctor`. Add `--check` (after `bash -s --`) to see the plan without changing anything.
@@ -42,9 +43,13 @@ OpenCode configuration, backing up every file it changes, and never changes your
 
 - A specific release, including release candidates: `bash install.sh --release v0.7.9` (the default installs the latest stable release)
 - From a clone (needs Node.js 24 and npm to build the plugin): `git clone https://github.com/rohit5roy/dridh && cd dridh && ./install.sh`
+- Offline: download `dridh-embedding-model.tar.gz` and its `.sha256` from a release, then `bash install.sh --model dridh-embedding-model.tar.gz`; `--no-embeddings` skips code-search embeddings entirely
 </details>
 
 ## Quick start
+
+Open OpenCode in your project and type `/dridh`. The first time, it asks whether this is a new or an existing
+codebase and sets the project up. Then press Shift+Tab until the agent reads Dridh/Coordinator. From a terminal, the same is:
 
 ```bash
 cd your-project

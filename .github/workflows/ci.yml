@@ -6,12 +6,14 @@
 #   2  python-tests   the whole Category A suite, incl. real Docker container tests       } in parallel
 #      plugin-tests   TypeScript bridge client and TUI                                    }
 #      packaging      the built wheel installed into a clean environment                  }
+#      tui-smoke      the real OpenCode with Dridh installed: first run, /dridh setup     }
+#                     (only when the TUI, plugin, CLI or installer changed; screenshots)  }
 #   3  docker-e2e     Docker full-system E2E (Category C)
 #      gate           the one required check for branch protection
 #
 # Toolchain versions and caches live in .github/actions/setup. Third-party actions are pinned to commit SHAs (kept
 # current by Dependabot). OpenCode is lock-pinned to 2.2.6 in .github/scripts/opencode-cli (Dridh supports 2.2.5 or later,
-# D-P18-03). Live model tests are a separate opt-in workflow (live-models.yml). Releases: release.yml.
+# see the README). Live model tests are a separate opt-in workflow (live-models.yml). Releases: release.yml.
 # Skipped tests are inventoried in each job summary and never counted as passed.
 
 name: CI
@@ -37,6 +39,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       code: ${{ steps.diff.outputs.code }}
+      tui: ${{ steps.diff.outputs.tui }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -54,10 +57,16 @@ jobs:
           set -euo pipefail
           if [ "$EVENT" = workflow_dispatch ] || [ -z "$BASE" ] || [ "$BASE" = 0000000000000000000000000000000000000000 ] \
              || ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
-            echo "code=true" >> "$GITHUB_OUTPUT"; echo "Full run (no usable base commit)."; exit 0
+            { echo "code=true"; echo "tui=true"; } >> "$GITHUB_OUTPUT"; echo "Full run (no usable base commit)."; exit 0
           fi
           changed=$(git diff --name-only "$BASE" HEAD)
           printf '%s\n' "$changed"
+          # The TUI smoke test drives the real OpenCode, so it runs only when what it exercises changed.
+          if printf '%s\n' "$changed" | grep -qE '^(dridh/opencode/|dridh/src/|dridh/scripts/|dridh/pyproject\.toml|dridh/uv\.lock|install\.sh|\.github/scripts/(tui_smoke\.py|opencode-cli/)|\.github/workflows/ci\.yml|\.github/actions/)'; then
+            echo "tui=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "tui=false" >> "$GITHUB_OUTPUT"
+          fi
           if printf '%s\n' "$changed" | grep -qvE '^docs/|^$'; then echo "code=true" >> "$GITHUB_OUTPUT"
           else echo "code=false" >> "$GITHUB_OUTPUT"; echo "Documentation only: stages 1-3 are skipped." >> "$GITHUB_STEP_SUMMARY"; fi
 
@@ -236,7 +245,7 @@ jobs:
           set -euo pipefail
           npm ci --no-audit --no-fund
           npm run build
-          node --test --test-reporter=spec tests/bridge-client.test.mjs tests/tui-plugin.test.mjs | tee "$RUNNER_TEMP/plugin-node.log"
+          node --test --test-reporter=spec tests/*.test.mjs | tee "$RUNNER_TEMP/plugin-node.log"
 
       - name: Summarise plugin test results
         if: always()
@@ -280,6 +289,62 @@ jobs:
             | "$RUNNER_TEMP/clean-venv/bin/dridh" bridge | tee "$RUNNER_TEMP/bridge-ping.json"
           grep -q '"status":"healthy"' "$RUNNER_TEMP/bridge-ping.json"
 
+  tui-smoke:
+    name: "2 · TUI smoke test in OpenCode (Category A)"
+    needs: [changes, security, build]
+    if: needs.changes.outputs.tui == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up the toolchain with the pinned OpenCode
+        uses: ./.github/actions/setup
+        with:
+          node: "true"
+          opencode: "true"
+          sync: "false"
+
+      - name: Download the wheel
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dridh-wheel
+          path: ${{ runner.temp }}/dist
+
+      - name: Install the wheel into a clean environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          command -v tmux >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq tmux; }
+          python3 -m venv "$RUNNER_TEMP/tui-venv"
+          "$RUNNER_TEMP/tui-venv/bin/python" -m pip install --quiet "$RUNNER_TEMP"/dist/dridh-*.whl
+          "$RUNNER_TEMP/tui-venv/bin/dridh" --version
+
+      - name: First run in OpenCode (no workspace, /dridh setup, ready, an error shown as a message)
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run --no-project --quiet --with pillow==13.0.0 python .github/scripts/tui_smoke.py \
+            --opencode .github/scripts/opencode-cli/node_modules/.bin/opencode \
+            --dridh "$RUNNER_TEMP/tui-venv/bin/dridh" --out "$RUNNER_TEMP/tui-smoke" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Scan the screens for credential material
+        if: always()
+        shell: bash
+        run: python3 .github/scripts/scan_secrets.py --paths "$RUNNER_TEMP/tui-smoke"
+
+      - name: Upload the screenshots
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: tui-smoke-screens
+          path: ${{ runner.temp }}/tui-smoke
+          if-no-files-found: warn
+          retention-days: 30
+
   docker-e2e:
     name: "3 · Docker full-system E2E (Category C)"
     needs: [python-tests, plugin-tests, packaging]
@@ -317,7 +382,7 @@ jobs:
 
   gate:
     name: CI gate
-    needs: [changes, security, build, python-tests, plugin-tests, packaging, docker-e2e]
+    needs: [changes, security, build, python-tests, plugin-tests, packaging, tui-smoke, docker-e2e]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -326,10 +391,11 @@ jobs:
         shell: bash
         env:
           CODE: ${{ needs.changes.outputs.code }}
+          TUI: ${{ needs.changes.outputs.tui }}
           RESULTS: >-
             changes=${{ needs.changes.result }} security=${{ needs.security.result }} build=${{ needs.build.result }}
             python-tests=${{ needs.python-tests.result }} plugin-tests=${{ needs.plugin-tests.result }}
-            packaging=${{ needs.packaging.result }} docker-e2e=${{ needs.docker-e2e.result }}
+            packaging=${{ needs.packaging.result }} tui-smoke=${{ needs.tui-smoke.result }} docker-e2e=${{ needs.docker-e2e.result }}
         run: |
           set -uo pipefail
           { echo "## CI gate"; echo; echo "| Stage job | Result |"; echo "|---|---|"; } >> "$GITHUB_STEP_SUMMARY"
@@ -340,6 +406,8 @@ jobs:
             if [ "$result" = success ]; then continue; fi
             # A documentation-only change skips stages 1-3 on purpose.
             if [ "$result" = skipped ] && [ "$CODE" = false ] && [ "$name" != changes ]; then continue; fi
+            # The TUI smoke test is skipped on purpose when nothing it exercises changed.
+            if [ "$result" = skipped ] && [ "$name" = tui-smoke ] && [ "$TUI" != true ]; then continue; fi
             failures=$((failures + 1))
           done
           if [ "$failures" -ne 0 ]; then echo "Gate FAILED: $failures job(s) did not succeed" | tee -a "$GITHUB_STEP_SUMMARY"; exit 1; fi
