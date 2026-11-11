@@ -11,14 +11,20 @@
 # GITHUB_TOKEN is used.
 #
 # Before anything is installed every prerequisite is checked and a plan is printed. Missing pieces are then
-# installed: uv (pinned GitHub release), Python 3.13 (through uv), fastembed (with the dridh command) and glow
-# (Homebrew when present, otherwise the pinned GitHub release, checksum-verified, into ~/.local/bin). Git is
+# installed: uv (pinned GitHub release), Python 3.13 (through uv), fastembed (with the dridh command), its embedding
+# model and glow (Homebrew when present, otherwise the pinned GitHub release, checksum-verified, into ~/.local/bin). Git is
 # installed through the system package manager when one is available. OpenCode is never installed for you:
 # Dridh is an OpenCode plugin, so without OpenCode the script stops before changing anything.
 #
 # Other options:
 #   --check             report the prerequisites and the plan, change nothing
-#   --no-embeddings     do not install fastembed (Code Reacher then uses its hashing fallback)
+#   --no-embeddings     do not install fastembed or its model (Code Reacher then uses its hashing fallback)
+#   --model ARCHIVE     the embedding model from this dridh-embedding-model.tar.gz (its .sha256 beside it) instead
+#                       of the release's copy; for offline installs
+#
+# The embedding model (about 61 MB) comes from the same release as Dridh, checksum-verified, and is unpacked into
+# ~/.cache/dridh/fastembed (FASTEMBED_CACHE_PATH or XDG_CACHE_HOME change that), so Code Reacher needs no Hugging Face
+# access. A release without it, or an install from a checkout or a wheel, leaves FastEmbed to download it on first use.
 #   --no-glow           do not install glow (the TUI reviewer then shows raw Markdown)
 #   --config-dir DIR    OpenCode configuration directory (default: OPENCODE_CONFIG_DIR or ~/.config/opencode)
 #   --no-configure      install the dridh command only; do not run `dridh install`
@@ -39,7 +45,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]:-/nonexistent}")" 2>/dev/null && pwd || 
 LOCAL_BIN="${XDG_BIN_HOME:-$HOME/.local/bin}"
 
 source_kind="auto"; source_value=""; config_args=(); configure=1; dry_run=0
-check_only=0; want_embeddings=1; want_glow=1
+check_only=0; want_embeddings=1; want_glow=1; model_archive=""
 
 die() { printf 'install.sh: %s\n' "$*" >&2; exit 1; }
 say() { printf '==> %s\n' "$*"; }
@@ -48,6 +54,40 @@ version_at_least() {  # version_at_least FOUND MINIMUM  (numeric x.y.z compariso
   [ "$(printf '%s\n%s\n' "$2" "$1" | sort -t. -k1,1n -k2,2n -k3,3n | head -1)" = "$2" ]
 }
 sha256_check() { if have sha256sum; then sha256sum -c - ; else shasum -a 256 -c - ; fi; }
+
+# >>> embedding model (the install-script tests run these functions on their own)
+MODEL_ARCHIVE="dridh-embedding-model.tar.gz"
+# Where Dridh looks for the model: the same rule as model_cache_dir() in dridh/src/dridh/code_reacher/embeddings.py.
+model_cache_dir() {
+  if [ -n "${FASTEMBED_CACHE_PATH:-}" ]; then printf '%s\n' "$FASTEMBED_CACHE_PATH"
+  else printf '%s\n' "${XDG_CACHE_HOME:-$HOME/.cache}/dridh/fastembed"; fi
+}
+# True when the cache already holds the archive with this checksum file (DIR_WITH_SHA256 CACHE).
+model_is_current() { [ -f "$2/$MODEL_ARCHIVE.sha256" ] && cmp -s "$1/$MODEL_ARCHIVE.sha256" "$2/$MODEL_ARCHIVE.sha256"; }
+# Checks the archive against its .sha256, refuses members that would land outside the cache, and unpacks it
+# (DIR_WITH_ARCHIVE CACHE). The checksum file is kept in the cache, so the same model is not unpacked twice.
+unpack_model() {
+  (cd "$1" && sha256_check < "$MODEL_ARCHIVE.sha256" >/dev/null 2>&1) || die "checksum mismatch for $MODEL_ARCHIVE; nothing was unpacked"
+  mkdir -p "$2"
+  python3 - "$1/$MODEL_ARCHIVE" "$2" <<'PY' || die "could not unpack $MODEL_ARCHIVE into $2"
+import os, sys, tarfile
+archive, dest = sys.argv[1], os.path.realpath(sys.argv[2])
+inside = lambda path: path == dest or path.startswith(dest + os.sep)
+with tarfile.open(archive) as tar:
+    members = tar.getmembers()
+    for m in members:
+        target = os.path.realpath(os.path.join(dest, m.name))
+        link = os.path.realpath(os.path.join(os.path.dirname(target), m.linkname)) if m.issym() else target
+        if not (m.isfile() or m.isdir() or m.issym()) or not inside(target) or not inside(link):
+            sys.exit(f"refusing archive member {m.name!r}")
+    try:
+        tar.extractall(dest, members=members, filter="data")
+    except TypeError:  # Python before 3.12 without the backported filter: the members were checked above
+        tar.extractall(dest, members=members)
+PY
+  cp "$1/$MODEL_ARCHIVE.sha256" "$2/$MODEL_ARCHIVE.sha256"
+}
+# <<< embedding model
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -58,6 +98,7 @@ while [ $# -gt 0 ]; do
     --dry-run) dry_run=1; shift ;;
     --check) check_only=1; shift ;;
     --no-embeddings) want_embeddings=0; shift ;;
+    --model) [ $# -ge 2 ] || die "--model needs a dridh-embedding-model.tar.gz"; model_archive="$2"; shift 2 ;;
     --no-glow) want_glow=0; shift ;;
     -h|--help) [ -f "$0" ] && awk 'NR>1 && /^set -euo/ {exit} NR>1 && /^#/ {sub(/^# ?/, ""); print}' "$0"; exit 0 ;;
     *) die "unknown option: $1 (see --help)" ;;
@@ -109,6 +150,13 @@ fi
 
 if [ "$want_embeddings" -eq 1 ]; then row fastembed install "fastembed==$FASTEMBED_VERSION goes into the dridh tool environment"
 else row fastembed skip "--no-embeddings: Code Reacher uses its hashing fallback"; fi
+
+if [ "$want_embeddings" -eq 0 ]; then row model skip "--no-embeddings"
+elif [ -n "$model_archive" ]; then
+  [ -f "$model_archive" ] && [ -f "$model_archive.sha256" ] || die "--model needs $model_archive and $model_archive.sha256"
+  row model install "from $model_archive into $(model_cache_dir)"
+elif [ "$source_kind" = release ]; then row model install "from the release ($MODEL_ARCHIVE, checksum-verified) into $(model_cache_dir)"
+else row model later "FastEmbed downloads it on first use (only releases ship it; or use --model)"; fi
 
 if [ "$want_glow" -eq 0 ]; then row glow skip "--no-glow: the TUI reviewer shows raw Markdown"
 elif have glow; then row glow ok "$(glow --version 2>/dev/null | head -1)"
@@ -206,6 +254,26 @@ for item in ${plan[@]+"${plan[@]}"}; do
   esac
 done
 
+# Downloads release assets into DIR: without credentials (public repository), else with the gh CLI, else with
+# GITHUB_TOKEN. Returns non-zero when any asset could not be fetched (release_fetch TAG DIR ASSET...).
+release_fetch() {
+  local tag=$1 dir=$2 name id api ok=1; shift 2
+  for name in "$@"; do curl -fsSL -o "$dir/$name" "https://github.com/$REPO/releases/download/$tag/$name" 2>/dev/null || { ok=0; break; }; done
+  [ "$ok" -eq 1 ] && return 0
+  if have gh; then
+    local patterns=(); for name in "$@"; do patterns+=(--pattern "$name"); done
+    gh release download "$tag" --repo "$REPO" "${patterns[@]}" --dir "$dir" --clobber >/dev/null 2>&1 && return 0
+  fi
+  [ -n "${GITHUB_TOKEN:-}" ] || return 1
+  api="https://api.github.com/repos/$REPO/releases/tags/$tag"
+  for name in "$@"; do
+    id="$(curl -fsSL -H "Authorization: Bearer $GITHUB_TOKEN" "$api" \
+          | python3 -c "import json,sys; print(next(a['id'] for a in json.load(sys.stdin)['assets'] if a['name']==sys.argv[1]))" "$name" 2>/dev/null)" || return 1
+    curl -fsSL -H "Authorization: Bearer $GITHUB_TOKEN" -H "Accept: application/octet-stream" \
+      -o "$dir/$name" "https://api.github.com/repos/$REPO/releases/assets/$id" || return 1
+  done
+}
+
 # --- 3. obtain the wheel -------------------------------------------------------------------------------------
 case "$source_kind" in
   checkout)
@@ -228,21 +296,8 @@ case "$source_kind" in
     fi
     version="${source_value#v}"; asset="dridh-${version}-py3-none-any.whl"
     say "installing Dridh $source_value"
-    base="https://github.com/$REPO/releases/download/$source_value"
-    if curl -fsSL -o "$work/$asset" "$base/$asset" 2>/dev/null && curl -fsSL -o "$work/$asset.sha256" "$base/$asset.sha256" 2>/dev/null; then
-      :  # public repository: no credentials needed
-    elif have gh; then
-      gh release download "$source_value" --repo "$REPO" --pattern "$asset" --pattern "$asset.sha256" --dir "$work" --clobber
-    else
-      [ -n "${GITHUB_TOKEN:-}" ] || die "cannot download $asset: the repository is private; sign in with the gh CLI or set GITHUB_TOKEN"
-      api="https://api.github.com/repos/$REPO/releases/tags/$source_value"
-      for name in "$asset" "$asset.sha256"; do
-        id="$(curl -fsSL -H "Authorization: Bearer $GITHUB_TOKEN" "$api" \
-              | python3 -c "import json,sys; print(next(a['id'] for a in json.load(sys.stdin)['assets'] if a['name']==sys.argv[1]))" "$name")"
-        curl -fsSL -H "Authorization: Bearer $GITHUB_TOKEN" -H "Accept: application/octet-stream" \
-          -o "$work/$name" "https://api.github.com/repos/$REPO/releases/assets/$id"
-      done
-    fi
+    release_fetch "$source_value" "$work" "$asset" "$asset.sha256" \
+      || die "cannot download $asset from release $source_value (for a private repository, sign in with the gh CLI or set GITHUB_TOKEN)"
     (cd "$work" && sha256_check < "$asset.sha256" >/dev/null) || die "checksum mismatch for $asset"
     wheel="$work/$asset"
     ;;
@@ -258,7 +313,8 @@ esac
 python3 - "$wheel" <<'PY' || die "the wheel has no packaged OpenCode plugin; rebuild it (see dridh/hatch_build.py)"
 import sys, zipfile
 names = zipfile.ZipFile(sys.argv[1]).namelist()
-required = ("dridh/assets/plugin/dridh-bridge/dist/index.js", "dridh/assets/plugin/dridh-bridge/dist/executable.js", "dridh/assets/plugin/dridh-bridge/dist/cli-result.js", "dridh/assets/plugin/dridh-bridge/tui/index.tsx")
+# Only what every release has, so --release can install an older one; build_assets.py checks the newer files at build time.
+required = ("dridh/assets/plugin/dridh-bridge/dist/index.js", "dridh/assets/plugin/dridh-bridge/tui/index.tsx")
 sys.exit(0 if all(r in names for r in required) and any(n.startswith("dridh/assets/agents/dridh/") for n in names) else 1)
 PY
 
@@ -272,6 +328,31 @@ dridh_bin="$bin_dir/dridh"
 [ -x "$dridh_bin" ] || die "dridh was not installed at $dridh_bin"
 case ":$PATH:" in *":$bin_dir:"*) ;; *) say "note: add $bin_dir to PATH to run dridh directly" ;; esac
 "$dridh_bin" --version
+
+# --- 4b. the embedding model, from the same release ------------------------------------------------------------
+if [ "$want_embeddings" -eq 1 ]; then
+  cache="$(model_cache_dir)"
+  model_dir=""
+  if [ -n "$model_archive" ]; then
+    model_dir="$work/model"; mkdir -p "$model_dir"
+    cp "$model_archive" "$model_dir/$MODEL_ARCHIVE"; cp "$model_archive.sha256" "$model_dir/$MODEL_ARCHIVE.sha256"
+  elif [ "$source_kind" = release ]; then
+    model_dir="$work/model"; mkdir -p "$model_dir"
+    if ! release_fetch "$source_value" "$model_dir" "$MODEL_ARCHIVE.sha256"; then
+      say "note: release $source_value has no $MODEL_ARCHIVE; FastEmbed downloads the model on first use"; model_dir=""
+    fi
+  fi
+  if [ -n "$model_dir" ]; then
+    if model_is_current "$model_dir" "$cache"; then
+      say "embedding model already in $cache"
+    elif [ -n "$model_archive" ] || release_fetch "$source_value" "$model_dir" "$MODEL_ARCHIVE"; then
+      say "unpacking the embedding model into $cache"
+      unpack_model "$model_dir" "$cache"
+    else
+      say "note: could not download $MODEL_ARCHIVE; FastEmbed downloads the model on first use"
+    fi
+  fi
+fi
 
 # --- 5. wire it into OpenCode -----------------------------------------------------------------------------------
 if [ "$configure" -eq 1 ]; then

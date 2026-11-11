@@ -14,7 +14,8 @@ sqlite-vec loaded) on two public repositories it had never seen, on a 4-CPU Linu
 | Re-index after editing one file | 7.8 s (1 file parsed, 41 vectors) | n/a |
 | API endpoints found | n/a | 329 Spring endpoints |
 
-The model is about 65 MB and downloads once from `huggingface.co` into `~/.cache/dridh/fastembed`.
+The model is about 65 MB. Releases from 0.9.0rc1 on ship it as `dridh-embedding-model.tar.gz`, which the installer
+checks and unpacks into `~/.cache/dridh/fastembed`; without it, FastEmbed downloads it once from `huggingface.co`.
 
 ## Search quality
 
