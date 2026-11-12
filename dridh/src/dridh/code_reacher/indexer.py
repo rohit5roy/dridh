@@ -297,5 +297,5 @@ def require_index(connection: Any, workspace_id: str) -> Any:
     run = _current_run(connection, workspace_id, ".")
     if run is None:
         raise DridhError(ErrorCode.DEPENDENCY_NOT_READY, "No successful Code Reacher index exists for this workspace.",
-                         recovery="Run `dridh index` first.")
+                         recovery="The Dridh Coordinator builds the index with code_reacher.index; from a terminal, run `dridh index`.")
     return run

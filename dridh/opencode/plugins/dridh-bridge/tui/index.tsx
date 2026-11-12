@@ -129,24 +129,36 @@ const MARK = { done: "✓", current: "●", todo: "○" } as const
 export default Plugin.define({
   id: "dridh",
   setup(ctx) {
-    const root = ctx.location?.directory ?? process.cwd()
+    /** The folder OpenCode is in now. It changes with /cd, so it is read every time, never kept from startup. */
+    const root = () => ctx.location?.directory ?? process.cwd()
+    let shownRoot: string | undefined
     const c = palette(ctx.themeMode)
     const [state, setState] = createSignal<Json>(undefined)
     const [error, setError] = createSignal<string | undefined>(undefined)
     /** True when this project has no Dridh workspace yet: a first run, not an error. /dridh offers to set it up. */
     const [unset, setUnset] = createSignal(false)
     const [settings, setSettings] = ctx.storage.store("dridh.tui", { initial: { reviewer: "" } })
-    let busy = false
+    /** The refresh in progress, shared: a second caller waits for it instead of starting another. */
+    let inflight: Promise<void> | undefined
     let quietUntil = 0
     /** The next state change comes from something the person just did here; do not notify them about it. */
     const quiet = () => { quietUntil = Date.now() + 15_000 }
     let lastAction: string | undefined
 
-    const refresh = async () => {
-      if (busy) return
-      busy = true
+    const refresh = (): Promise<void> => (inflight ??= load().finally(() => { inflight = undefined }))
+    const load = async () => {
+      const folder = root()
+      if (folder !== shownRoot) {
+        // OpenCode moved to another folder (/cd): forget everything shown for the previous one.
+        shownRoot = folder
+        lastAction = undefined
+        setState(undefined)
+        setUnset(false)
+        setError(undefined)
+      }
       try {
-        const next = await dridhJson(["ui", "state"], root)
+        const next = await dridhJson(["ui", "state"], folder)
+        if (folder !== root()) return  // moved again while reading: the next refresh reads the new folder
         const action = next?.human_action ? `${next.feature?.slug}:${next.human_action.kind}:${next.human_action.text}` : undefined
         if (lastAction !== undefined && action && action !== lastAction && next.human_action.kind !== "wait" && Date.now() > quietUntil) {
           ctx.ui.toast.show({ title: "Dridh needs you", message: next.human_action.text, variant: "warning", duration: 8000 })
@@ -157,6 +169,7 @@ export default Plugin.define({
         setUnset(false)
         setError(undefined)
       } catch (e) {
+        if (folder !== root()) return
         if ((e as { code?: string }).code === WORKSPACE_NOT_FOUND) {
           setState(undefined)
           setUnset(true)
@@ -164,8 +177,6 @@ export default Plugin.define({
         } else {
           setError((e as Error).message)
         }
-      } finally {
-        busy = false
       }
     }
     void refresh()
@@ -194,39 +205,51 @@ export default Plugin.define({
       })
       if (!mode) return
       try {
-        await dridhJson(["init", "--mode", mode], root)
+        await dridhJson(["init", "--mode", mode], root())
         quiet()
         await refresh()
-        ctx.ui.toast.show({ title: "Dridh is set up", message: "Press Shift+Tab for the Dridh Coordinator and tell it what you want to build.", variant: "success" })
+        if (mode === "existing") {
+          // An existing codebase is indexed before the Ideator. In the terminal the person sees the progress, which on a
+          // large repository takes minutes; cancelling leaves it to the Coordinator (code_reacher.index) or `dridh index`.
+          await onTerminal("Index the codebase", ["Code Reacher indexes the code here so the agents can search it and plan against it.",
+            "A large repository can take a few minutes."], ["index"],
+            { note: "OpenCode steps aside and Dridh shows the indexing progress in this terminal.",
+              done: "The codebase is indexed. Press Shift+Tab for the Dridh Coordinator and tell it what you want to build.",
+              failed: "Indexing did not finish. The Dridh Coordinator can run it, or run dridh index in a terminal." })
+        } else {
+          ctx.ui.toast.show({ title: "Dridh is set up", message: "Press Shift+Tab for the Dridh Coordinator and tell it what you want to build.", variant: "success" })
+        }
         show({ name: "overview" })
       } catch (e) {
         ctx.ui.toast.show({ title: "Dridh setup failed", message: (e as Error).message, variant: "error" })
       }
     }
 
-    /** /dridh: the overview, or the setup choice when the project has no workspace yet. */
-    function overview(): void {
+    /** /dridh: the overview, or the setup choice when the project has no workspace yet. Reads the current folder first. */
+    async function overview(): Promise<void> {
+      await refresh()
+      if (shownRoot !== root()) await refresh()  // the refresh that was running had started in the previous folder
       if (unset()) void setUp()
       else show({ name: "overview" })
     }
 
     /** Suspend OpenCode's screen and let the human run a Dridh confirmation command on the real terminal. */
-    async function onTerminal(title: string, lines: string[], args: string[]): Promise<void> {
+    async function onTerminal(title: string, lines: string[], args: string[], how?: { note?: string; done?: string; failed?: string }): Promise<void> {
       const go = await ctx.ui.dialog.confirm({
         title,
-        message: [...lines, "", "OpenCode steps aside and Dridh asks for the typed confirmation in this terminal. You type it; nothing is typed for you."].join("\n"),
+        message: [...lines, "", how?.note ?? "OpenCode steps aside and Dridh asks for the typed confirmation in this terminal. You type it; nothing is typed for you."].join("\n"),
         label: { confirm: "Continue in terminal", cancel: "Cancel" },
       })
       if (!go) return
       quiet()
-      const argv = [...args, "--project", root]
+      const argv = [...args, "--project", root()]
       await ctx.renderer.suspend()
       let code: number | null = null
       try {
         process.stdout.write(`\n\x1b[1mDridh · ${title}\x1b[0m\n$ dridh ${args.join(" ")}\n\n`)
         code = await new Promise<number | null>((resolve) => {
           const script = '"$0" "$@"; code=$?; printf "\\n[dridh exited %s] Press Enter to return to OpenCode " "$code"; read -r _; exit "$code"'
-          const child = spawn("sh", ["-c", script, bin(), ...argv], { cwd: root, stdio: "inherit", env: { ...process.env, DRIDH_OUTPUT: "" } })
+          const child = spawn("sh", ["-c", script, bin(), ...argv], { cwd: root(), stdio: "inherit", env: { ...process.env, DRIDH_OUTPUT: "" } })
           child.on("error", () => resolve(null))
           child.on("exit", (exit) => resolve(exit))
         })
@@ -235,8 +258,8 @@ export default Plugin.define({
       }
       await refresh()
       ctx.ui.toast.show(code === 0
-        ? { title, message: "Recorded by Dridh.", variant: "success" }
-        : { title, message: "Nothing was changed. Dridh reported a problem in the terminal.", variant: "error" })
+        ? { title, message: how?.done ?? "Recorded by Dridh.", variant: "success" }
+        : { title, message: how?.failed ?? "Nothing was changed. Dridh reported a problem in the terminal.", variant: "error" })
     }
 
     async function approveDocument(stageKey?: string) {
@@ -290,7 +313,7 @@ export default Plugin.define({
       if (a.kind === "advance") {
         quiet()
         try {
-          await dridhJson(["feature", "sync", feature().slug], root)
+          await dridhJson(["feature", "sync", feature().slug], root())
           await refresh()
           return ctx.ui.toast.show({ title: "Dridh", message: `${feature().name} is now in ${feature().stage_label}.`, variant: "success" })
         } catch (e) { return ctx.ui.toast.show({ message: (e as Error).message, variant: "error" }) }
@@ -325,7 +348,10 @@ export default Plugin.define({
         setPanelView(view)
         if (ctx.ui.panel.current()?.name === "dridh" || ctx.ui.panel.open("dridh", { presentation: "panel" })) return
       }
-      ctx.ui.router.navigate({ type: "plugin", name: view.name, data: view.data })
+      // On the home screen the views open in a dialog, not as a page: leaving a page rebuilds the home screen in the folder
+      // OpenCode started in, which undoes a /cd. Closing a dialog leaves OpenCode where it is.
+      ctx.ui.dialog.show(() => homeView(view), () => {})
+      ctx.ui.dialog.set({ size: "xlarge" })
     }
 
     // ------------------------------------------------------------------ small pieces
@@ -438,7 +464,7 @@ export default Plugin.define({
       const [busyItem, setBusyItem] = createSignal<string>()
       const openIfNeeded = async () => {
         if (doc() && !doc().review && key() === "plan") {
-          try { quiet(); await dridhJson(["planner", "review", doc().session_id], root); await refresh() } catch (e) { ctx.ui.toast.show({ message: (e as Error).message, variant: "error" }) }
+          try { quiet(); await dridhJson(["planner", "review", doc().session_id], root()); await refresh() } catch (e) { ctx.ui.toast.show({ message: (e as Error).message, variant: "error" }) }
         }
       }
       void openIfNeeded()
@@ -448,7 +474,7 @@ export default Plugin.define({
         setBusyItem(it.item)
         try {
           quiet()
-          await dridhJson(["reviews", "checklist", doc().review.id, it.item, it.checked ? "--unchecked" : "--checked"], root)
+          await dridhJson(["reviews", "checklist", doc().review.id, it.item, it.checked ? "--unchecked" : "--checked"], root())
           await refresh()
         } catch (e) { ctx.ui.toast.show({ message: (e as Error).message, variant: "error" }) } finally { setBusyItem(undefined) }
       }
@@ -487,7 +513,7 @@ export default Plugin.define({
     function DocumentBody(props: { stage: string; active: () => boolean; width: () => number; fullscreen?: () => void }) {
       const [view, setView] = createSignal<Json>(undefined)
       const [problem, setProblem] = createSignal<string>()
-      dridhJson(["ui", "document", props.stage], root).then(setView).catch((e) => setProblem((e as Error).message))
+      dridhJson(["ui", "document", props.stage], root()).then(setView).catch((e) => setProblem((e as Error).message))
       let scroll: Json
       const [raw, setRaw] = createSignal(false)
       const [rendered, setRendered] = createSignal<Seg[][]>()
@@ -590,7 +616,7 @@ export default Plugin.define({
       const [view, setView] = createSignal<Json>(undefined)
       const [problem, setProblem] = createSignal<string>()
       const [index, setIndex] = createSignal(0)
-      const load = () => dridhJson(["ui", "lot", props.run, String(props.lot)], root).then(setView).catch((e) => setProblem((e as Error).message))
+      const load = () => dridhJson(["ui", "lot", props.run, String(props.lot)], root()).then(setView).catch((e) => setProblem((e as Error).message))
       void load()
       let scroll: Json
       const story = () => view()?.stories?.[index()]
@@ -788,8 +814,12 @@ export default Plugin.define({
 
     // ------------------------------------------------------------------ full pages (home screen, no session)
 
-    const Page = (props: { title: string; children: Json }) => {
-      useKeyboard((key) => { if (key.name === "escape" || key.name === "q") ctx.ui.router.navigate({ type: "home" }) })
+    const Page = (props: { title: string; children: Json; close?: () => void }) => {
+      useKeyboard((key) => {
+        if (key.name !== "escape" && key.name !== "q") return
+        if (props.close) props.close()
+        else ctx.ui.router.navigate({ type: "home" })
+      })
       return (
         <box flexDirection="column" flexGrow={1} paddingLeft={2} paddingRight={2} paddingTop={1} gap={1}>
           <box flexDirection="row" justifyContent="space-between" flexShrink={0}>
@@ -806,6 +836,16 @@ export default Plugin.define({
     ctx.ui.router.register({ name: "document", render: (input) => <Page title="document"><DocumentBody stage={input.data?.stage ?? "use_cases"} active={always} width={() => (ctx.renderer.width ?? 160) - 4} /></Page> })
     ctx.ui.router.register({ name: "lot", render: (input) => <Page title="execution"><LotBody run={input.data?.run} lot={input.data?.lot} active={always} /></Page> })
 
+    /** A view in the home-screen dialog: the same bodies as the pages, closed with esc or q. */
+    function homeView(view: View): Json {
+      const close = () => ctx.ui.dialog.clear()
+      const width = () => Math.max(60, Math.floor((ctx.renderer.width ?? 160) * 0.8) - 8)
+      if (view.name === "checklist") return <Page title="checklist" close={close}><ChecklistBody stage={view.data?.stage} active={always} /></Page>
+      if (view.name === "document") return <Page title="document" close={close}><DocumentBody stage={view.data?.stage ?? "use_cases"} active={always} width={width} /></Page>
+      if (view.name === "lot") return <Page title="execution" close={close}><LotBody run={view.data?.run} lot={view.data?.lot} active={always} /></Page>
+      return <Page title="overview" close={close}><OverviewBody active={always} /></Page>
+    }
+
     function openLot() {
       const a = action()
       const run = a?.kind === "lot" ? { id: a.run_id, lot: a.lot } : (() => { const r = (state()?.runs ?? []).at(-1); return r?.lots?.length ? { id: r.id, lot: r.lots.at(-1).ordinal } : undefined })()
@@ -821,7 +861,7 @@ export default Plugin.define({
       mode: "global",
       commands: [
         { id: "dridh.overview", title: "Dridh: overview", description: "Feature stages, documents, runs and what needs you", group: "Dridh", palette: true, slash: { name: "dridh" },
-          run: () => overview() },
+          run: () => void overview() },
         { id: "dridh.next", title: "Dridh: do the next human step", description: "Checklist, approval, lot review, start or complete", group: "Dridh", palette: true, slash: { name: "dridh-next" },
           run: () => void next() },
         { id: "dridh.review", title: "Dridh: read a document", description: "Use Cases, technical design or plan", group: "Dridh", palette: true,

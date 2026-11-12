@@ -330,7 +330,10 @@ def test_bridge_lets_dridh_agents_query_but_only_the_coordinator_index(repo):
     planner = {"source": "plugin", "agent": "dridh/planner", "session_id": "ses_planner0001"}
     stranger = {"source": "plugin", "agent": "build", "session_id": "ses_other000001"}
 
-    assert _call("code_reacher.index_status", project, caller=planner)["data"]["indexed"] is False
+    status = _call("code_reacher.index_status", project, caller=planner)["data"]
+    assert status["indexed"] is False
+    # Agents read this message too: it names the operation the Coordinator runs, not only the terminal command.
+    assert "code_reacher.index" in status["message"] and "dridh index" in status["message"]
     assert _call("code_reacher.index", project, {"embed": False}, caller=planner)["error"]["code"] == "AUTHORIZATION_DENIED"
     indexed = _call("code_reacher.index", project, {"embed": False}, caller=COORDINATOR)
     assert indexed["ok"] and indexed["data"]["files_parsed"] == 11

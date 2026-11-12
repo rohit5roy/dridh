@@ -54,9 +54,24 @@ test("a project without a workspace is a first run: /dridh offers setup instead 
   assert.ok(source.includes("readCliResult(String(stdout"), "stdout and stderr are both read")
   assert.ok(!source.includes("JSON.parse(stdout)"), "no second, stdout-only parser")
   assert.ok(source.includes("=== WORKSPACE_NOT_FOUND"), "a missing workspace is recognised by its code")
-  assert.match(source, /slash: \{ name: "dridh" \},\s*run: \(\) => overview\(\)/, "/dridh goes through the setup check")
+  assert.match(source, /slash: \{ name: "dridh" \},\s*run: \(\) => void overview\(\)/, "/dridh goes through the setup check")
   assert.match(source, /if \(unset\(\)\) void setUp\(\)/)
-  assert.ok(source.includes('dridhJson(["init", "--mode", mode], root)'), "setup runs dridh init with the chosen mode")
+  assert.ok(source.includes('dridhJson(["init", "--mode", mode], root())'), "setup runs dridh init with the chosen mode")
   assert.ok(source.includes('value: "new"') && source.includes('value: "existing"'), "the person chooses; the mode is never guessed")
   assert.ok(source.includes("dridh · not set up · type /dridh to start"), "the status line explains how to start")
+})
+
+test("the TUI follows OpenCode to another folder (/cd) instead of keeping the one it started in", () => {
+  assert.ok(source.includes("const root = () => ctx.location?.directory ?? process.cwd()"), "the folder is read every time")
+  assert.doesNotMatch(source, /const root = ctx\.location/, "never kept from startup")
+  assert.doesNotMatch(source, /[(,] *root *[,)]/, "every command gets the current folder, root(), not a saved value")
+  assert.match(source, /if \(folder !== shownRoot\) \{[^}]*setState\(undefined\)[^}]*setUnset\(false\)/s, "a new folder clears what was shown")
+  assert.ok(source.includes("if (folder !== root()) return"), "a result for a folder OpenCode has left is dropped")
+  assert.match(source, /async function overview\(\)[^{]*\{\s*await refresh\(\)/, "/dridh reads the current folder before deciding")
+})
+
+test("setting up an existing codebase offers to index it, with the progress in the terminal", () => {
+  assert.match(source, /if \(mode === "existing"\) \{[\s\S]*?onTerminal\("Index the codebase", \[[\s\S]*?\], \["index"\]/)
+  assert.ok(source.includes("Dridh shows the indexing progress in this terminal"))
+  assert.ok(!/onTerminal\([^)]*--confirmation/.test(source), "indexing needs no confirmation")
 })
