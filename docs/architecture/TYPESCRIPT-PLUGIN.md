@@ -85,11 +85,11 @@ Exit code `0` is not success by itself. `ok: false` with exit `0` is mapped to `
 
 - **Session panel.** Inside a session, the Dridh views (overview, checklist, document, execution lot) open in the session panel beside the conversation. On the home screen they open in a large dialog, so closing one leaves OpenCode in its current folder. Documents render through `glow` when it is installed, with Mermaid diagrams drawn as text.
 - **Sidebar.** A Dridh section lists the stages, the documents, the open checklist, the next step and the actions. Each line can be clicked, or run by its command.
-- **First run.** In a project without a Dridh workspace, `/dridh` asks whether the project is a new or an existing codebase (the person chooses; the mode is never guessed), runs `dridh init --mode ...` and opens the overview. Until then the status line reads `dridh · not set up · type /dridh to start`.
+- **First run.** In a project without a Dridh workspace, `/dridh` opens *Set up Dridh*: new or existing codebase (the person chooses; the mode is never guessed). It runs `dridh init --mode ...`. Until the first feature exists, the overview lists the setup steps (set up, index the code for an existing codebase, start your first feature) with the one next action, and the status line shows `dridh · setup n/N`.
 - **Folder changes.** The TUI reads OpenCode's current folder on every refresh, so after `/cd` the status line, `/dridh` and every command act on the new folder; what was shown for the previous one is cleared.
-- **Existing codebase.** When setup chooses *Existing codebase*, the TUI offers to index it: `dridh index` runs in the terminal with its progress visible. Cancelling leaves the index to the Dridh Coordinator (`code_reacher.index`).
-- **Status line.** A one-line status shows in the home screen footer, and in the prompt footer while a session is open: the feature and its stage, `dridh · ready` when the project is set up but has no feature yet, or an error as its message (never raw JSON).
-- **Slash commands.** `/dridh` opens the overview (or the first-run setup); `/dridh-next` does the next human step; `/dridh-review` opens a document (`use cases`, `design` or `plan`); `/dridh-checklist` opens the review checklist; `/dridh-approve` approves the document under review; `/dridh-lot` opens the execution lot review. The same actions are in the command palette.
+- **Indexing.** Choosing *Existing codebase* starts `dridh index --progress` in the background, beside OpenCode. Its progress (JSON lines on stderr) shows in the status line, such as `dridh · setup 2/3 · indexing 37/116 files`, and a notification says when it is done. `/dridh-index` starts it by hand; the Dridh Coordinator can also run it (`code_reacher.index`).
+- **Status line.** A one-line status shows in the home screen footer, and in the prompt footer while a session is open: the feature and its stage; before the first feature, the setup step and the next action (`dridh · setup 3/3 · Shift+Tab: Dridh/Coordinator, describe a feature`, or `describe a feature to start` in a Dridh Coordinator session); or an error as its message (never raw JSON).
+- **Slash commands.** `/dridh` opens the overview (or the first-run setup); `/dridh-index` indexes the code in the background; `/dridh-next` does the next human step; `/dridh-review` opens a document (`use cases`, `design` or `plan`); `/dridh-checklist` opens the review checklist; `/dridh-approve` approves the document under review; `/dridh-lot` opens the execution lot review. The same actions are in the command palette.
 - **Human confirmations.** Approvals, lot verdicts, starting a run and completing a feature are typed confirmations. For those, the plugin suspends OpenCode's screen, as OpenCode does for `$EDITOR`, and hands the real terminal to the Dridh command. The person types the confirmation into Dridh's own prompt. The plugin never sees or types it. Agents have no tool that reaches any of this.
 - **Checklist ticks** run `dridh reviews checklist`, the same record the CLI keeps.
 
@@ -103,7 +103,7 @@ npm ci
 npm test
 ```
 
-`npm test` builds with `tsc` and runs the Node test suite: 45 tests in four files. `bridge-client.test.mjs` uses the real `dridh bridge` for PL-01, PL-02 and PL-04, and a fake bridge for the rest. The real bridge path can be set with `DRIDH_BIN`.
+`npm test` builds with `tsc` and runs the Node test suite: 46 tests in four files. `bridge-client.test.mjs` uses the real `dridh bridge` for PL-01, PL-02 and PL-04, and a fake bridge for the rest. The real bridge path can be set with `DRIDH_BIN`.
 
 ## Hooks
 
