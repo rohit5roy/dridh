@@ -42,7 +42,7 @@ test("the TUI finds dridh with the same resolver as the server bridge, shipped b
 
 test("every dridh command the TUI starts goes through the resolver", () => {
   const starts = [...source.matchAll(/\b(execFile|spawn)\(([^,]+),/g)].map((match) => `${match[1]}(${match[2].trim()}`)
-  assert.deepEqual(starts.sort(), ["execFile(executable", "spawn(\"sh\"", "spawn(glowBin()"].sort())
+  assert.deepEqual(starts.sort(), ["execFile(executable", "spawn(\"sh\"", "spawn(glowBin()", "spawn(bin()"].sort())
   assert.ok(source.includes("const executable = bin()"))
   assert.ok(source.includes('["-c", script, bin(), ...argv]'), "the confirmation terminal runs the resolved command")
   assert.ok(source.includes("missingExecutableMessage(executable)"), "a missing command gets a message that says how to fix it")
@@ -58,7 +58,7 @@ test("a project without a workspace is a first run: /dridh offers setup instead 
   assert.match(source, /if \(unset\(\)\) void setUp\(\)/)
   assert.ok(source.includes('dridhJson(["init", "--mode", mode], root())'), "setup runs dridh init with the chosen mode")
   assert.ok(source.includes('value: "new"') && source.includes('value: "existing"'), "the person chooses; the mode is never guessed")
-  assert.ok(source.includes("dridh · not set up · type /dridh to start"), "the status line explains how to start")
+  assert.ok(source.includes("dridh · type /dridh to set up"), "the status line explains how to start")
 })
 
 test("the TUI follows OpenCode to another folder (/cd) instead of keeping the one it started in", () => {
@@ -70,8 +70,19 @@ test("the TUI follows OpenCode to another folder (/cd) instead of keeping the on
   assert.match(source, /async function overview\(\)[^{]*\{\s*await refresh\(\)/, "/dridh reads the current folder before deciding")
 })
 
-test("setting up an existing codebase offers to index it, with the progress in the terminal", () => {
-  assert.match(source, /if \(mode === "existing"\) \{[\s\S]*?onTerminal\("Index the codebase", \[[\s\S]*?\], \["index"\]/)
-  assert.ok(source.includes("Dridh shows the indexing progress in this terminal"))
-  assert.ok(!/onTerminal\([^)]*--confirmation/.test(source), "indexing needs no confirmation")
+test("setting up an existing codebase indexes it in the background, with progress in the status line", () => {
+  assert.match(source, /if \(mode === "existing"\) startIndex\(\)/, "an existing codebase is indexed right after setup")
+  assert.match(source, /spawn\(bin\(\), \["index", "--progress", "--json", "--project", folder\]/, "dridh index runs beside OpenCode, not in the terminal")
+  assert.ok(!/onTerminal\([^)]*"index"/.test(source), "indexing no longer takes over the terminal")
+  assert.match(source, /event\?\.progress === "files" \|\| event\?\.progress === "embeddings"/, "progress lines feed the status line")
+  assert.ok(source.includes('const what = job.phase === "files" ? "indexing" : "embedding"') && source.includes("${what}${count}"), "the status line shows how far indexing is")
+  assert.match(source, /slash: \{ name: "dridh-index" \},\s*run: \(\) => startIndex\(\)/, "/dridh-index starts it by hand")
+})
+
+test("before the first feature the TUI shows the setup steps and one next action", () => {
+  assert.ok(source.includes("Setup · step"), "the overview shows which step setup is at")
+  assert.match(source, /`dridh · \$\{step\} · /, "the status line shows the setup step")
+  assert.ok(source.includes('const START_FEATURE = "Select Dridh/Coordinator (Shift+Tab) and describe a feature."'))
+  assert.ok(source.includes('agent === "dridh/coordinator" ? "describe a feature to start"'), "inside a Coordinator session it does not ask for Shift+Tab")
+  assert.ok(!source.includes("Press Shift+Tab for the Dridh Coordinator and tell it what you want to build"), "the long message is gone")
 })

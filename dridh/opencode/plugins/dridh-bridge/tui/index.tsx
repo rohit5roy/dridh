@@ -129,6 +129,8 @@ const MARK = { done: "✓", current: "●", todo: "○" } as const
 export default Plugin.define({
   id: "dridh",
   setup(ctx) {
+    /** The next step once Dridh is set up. Works whether or not the Coordinator is already selected. */
+    const START_FEATURE = "Select Dridh/Coordinator (Shift+Tab) and describe a feature."
     /** The folder OpenCode is in now. It changes with /cd, so it is read every time, never kept from startup. */
     const root = () => ctx.location?.directory ?? process.cwd()
     let shownRoot: string | undefined
@@ -197,10 +199,10 @@ export default Plugin.define({
     /** First run in a project: ask whether it is a new or an existing codebase (never guessed), then create the workspace. */
     async function setUp(): Promise<void> {
       const mode = await ctx.ui.dialog.select<"new" | "existing">({
-        title: "Dridh isn't set up in this project",
+        title: "Set up Dridh",
         options: [
           { title: "New codebase", value: "new", description: "Start from an idea" },
-          { title: "Existing codebase", value: "existing", description: "Add to the code here" },
+          { title: "Existing codebase", value: "existing", description: "Add to the code here (indexed first)" },
         ],
       })
       if (!mode) return
@@ -208,21 +210,63 @@ export default Plugin.define({
         await dridhJson(["init", "--mode", mode], root())
         quiet()
         await refresh()
-        if (mode === "existing") {
-          // An existing codebase is indexed before the Ideator. In the terminal the person sees the progress, which on a
-          // large repository takes minutes; cancelling leaves it to the Coordinator (code_reacher.index) or `dridh index`.
-          await onTerminal("Index the codebase", ["Code Reacher indexes the code here so the agents can search it and plan against it.",
-            "A large repository can take a few minutes."], ["index"],
-            { note: "OpenCode steps aside and Dridh shows the indexing progress in this terminal.",
-              done: "The codebase is indexed. Press Shift+Tab for the Dridh Coordinator and tell it what you want to build.",
-              failed: "Indexing did not finish. The Dridh Coordinator can run it, or run dridh index in a terminal." })
-        } else {
-          ctx.ui.toast.show({ title: "Dridh is set up", message: "Press Shift+Tab for the Dridh Coordinator and tell it what you want to build.", variant: "success" })
-        }
+        if (mode === "existing") startIndex()  // in the background: the status line shows the progress
+        else ctx.ui.toast.show({ title: "Dridh is set up", message: START_FEATURE, variant: "success" })
         show({ name: "overview" })
       } catch (e) {
         ctx.ui.toast.show({ title: "Dridh setup failed", message: (e as Error).message, variant: "error" })
       }
+    }
+
+    // ------------------------------------------------------------------ indexing in the background
+
+    type Indexing = { folder: string; phase: "files" | "embeddings"; done: number; total: number }
+    const [indexing, setIndexing] = createSignal<Indexing | undefined>(undefined)
+    /** The index job for the folder OpenCode is in now, if one is running. */
+    const indexingHere = () => (indexing()?.folder === root() ? indexing() : undefined)
+
+    /** Runs `dridh index` beside OpenCode; its progress (JSON lines on stderr) feeds the status line and the overview. */
+    function startIndex(): void {
+      const folder = root()
+      if (indexing()) return ctx.ui.toast.show({ message: "The code is already being indexed.", variant: "info" })
+      setIndexing({ folder, phase: "files", done: 0, total: 0 })
+      const child = spawn(bin(), ["index", "--progress", "--json", "--project", folder], { cwd: folder, env: { ...process.env, DRIDH_OUTPUT: "json" } })
+      let stdout = ""
+      let stderr = ""
+      let partial = ""
+      child.stdout.on("data", (chunk) => { stdout += chunk })
+      child.stderr.on("data", (chunk) => {
+        partial += chunk
+        const lines = partial.split("\n")
+        partial = lines.pop() ?? ""
+        for (const line of lines) {
+          try {
+            const event = JSON.parse(line)
+            if (event?.progress === "files" || event?.progress === "embeddings") {
+              setIndexing({ folder, phase: event.progress, done: Number(event.done) || 0, total: Number(event.total) || 0 })
+              continue
+            }
+          } catch { /* not a progress line */ }
+          stderr += line + "\n"
+        }
+      })
+      child.on("error", () => {
+        setIndexing(undefined)
+        ctx.ui.toast.show({ title: "Indexing failed", message: missingExecutableMessage(bin()), variant: "error" })
+      })
+      child.on("close", (code) => {
+        setIndexing(undefined)
+        void refresh()
+        try {
+          const result = readCliResult(stdout, stderr + partial, code !== 0) as { files_seen?: number }
+          const files = Number(result?.files_seen ?? 0)
+          const message = `Code indexed (${files} file${files === 1 ? "" : "s"}). ${START_FEATURE}`
+          ctx.ui.toast.show({ title: "Dridh", message, variant: "success", duration: 8000 })
+          void ctx.attention.notify({ title: "Dridh", message, notification: { when: "blurred" }, sound: { name: "done", when: "blurred" } })
+        } catch (e) {
+          ctx.ui.toast.show({ title: "Indexing failed", message: (e as Error).message, variant: "error" })
+        }
+      })
     }
 
     /** /dridh: the overview, or the setup choice when the project has no workspace yet. Reads the current folder first. */
@@ -234,10 +278,10 @@ export default Plugin.define({
     }
 
     /** Suspend OpenCode's screen and let the human run a Dridh confirmation command on the real terminal. */
-    async function onTerminal(title: string, lines: string[], args: string[], how?: { note?: string; done?: string; failed?: string }): Promise<void> {
+    async function onTerminal(title: string, lines: string[], args: string[]): Promise<void> {
       const go = await ctx.ui.dialog.confirm({
         title,
-        message: [...lines, "", how?.note ?? "OpenCode steps aside and Dridh asks for the typed confirmation in this terminal. You type it; nothing is typed for you."].join("\n"),
+        message: [...lines, "", "OpenCode steps aside and Dridh asks for the typed confirmation in this terminal. You type it; nothing is typed for you."].join("\n"),
         label: { confirm: "Continue in terminal", cancel: "Cancel" },
       })
       if (!go) return
@@ -258,8 +302,8 @@ export default Plugin.define({
       }
       await refresh()
       ctx.ui.toast.show(code === 0
-        ? { title, message: how?.done ?? "Recorded by Dridh.", variant: "success" }
-        : { title, message: how?.failed ?? "Nothing was changed. Dridh reported a problem in the terminal.", variant: "error" })
+        ? { title, message: "Recorded by Dridh.", variant: "success" }
+        : { title, message: "Nothing was changed. Dridh reported a problem in the terminal.", variant: "error" })
     }
 
     async function approveDocument(stageKey?: string) {
@@ -386,6 +430,33 @@ export default Plugin.define({
       return ["use_cases", "design", "plan"].find((k) => docs[k]?.review && docs[k].review.status !== "APPROVED")
     }
 
+    /** Before the first feature: where setup stands, the step in progress and the one thing to do next. */
+    const SetupSteps = () => (
+      <Show when={!error() && !unset() && state()?.setup} fallback={<text fg={c.muted}>{error() ?? (unset() ? "Type /dridh to set up Dridh here." : "")}</text>}>
+        <box flexDirection="column" gap={1}>
+          <text><b>Setup · step {indexingHere() ? Math.min(2, state().setup.total) : state().setup.step} of {state().setup.total}</b></text>
+          <box flexDirection="column">
+            <For each={state().setup.steps}>
+              {(step: Json, i) => {
+                const running = () => step.id === "index" && indexingHere()
+                const mark = () => (running() ? "●" : MARK[step.state as keyof typeof MARK])
+                const colour = () => (running() || step.state === "current" ? c.warn : step.state === "done" ? c.ok : c.muted)
+                const detail = () => {
+                  const job = indexingHere()
+                  if (!running() || !job) return ""
+                  return job.total ? ` · ${job.phase === "files" ? "files" : "embeddings"} ${job.done} of ${job.total}` : " · starting"
+                }
+                return <text><span style={{ fg: colour() }}>{` ${mark()} ${i() + 1}  `}</span>{step.label}<span style={{ fg: c.muted }}>{detail()}</span></text>
+              }}
+            </For>
+          </box>
+          <Show when={!indexingHere()}>
+            <text fg={c.accent}>{state()?.human_action?.kind === "index" ? "Next: /dridh-index to index the code." : `Next: ${START_FEATURE}`}</text>
+          </Show>
+        </box>
+      </Show>
+    )
+
     // ------------------------------------------------------------------ views (used by the session panel and the full pages)
 
     function OverviewBody(props: { active: () => boolean; narrow?: boolean }) {
@@ -402,7 +473,7 @@ export default Plugin.define({
         }
       })
       return (
-        <Show when={feature()} fallback={<text fg={c.muted}>{error() ?? (unset() ? "Dridh isn't set up in this project yet. Type /dridh to set it up." : "No Dridh feature in this project yet. Press Shift+Tab for the Dridh Coordinator and tell it what you want to build.")}</text>}>
+        <Show when={feature()} fallback={<SetupSteps />}>
           <box flexDirection={props.narrow ? "column" : "row"} gap={props.narrow ? 1 : 4} flexGrow={1}>
             <box flexDirection="column" width={props.narrow ? undefined : 30} flexShrink={0}>
               <text fg={c.muted}>STAGES</text>
@@ -752,11 +823,25 @@ export default Plugin.define({
       ),
     })
 
-    const statusLine = (short = false) => (
+    /** The status line before the first feature: setup step, indexing progress and the next action, shortest first. */
+    const setupLine = (sessionID?: string) => {
+      const setup = state()?.setup
+      const job = indexingHere()
+      const step = setup ? `setup ${job ? Math.min(2, setup.total) : setup.step}/${setup.total}` : "ready"
+      if (job) {
+        const what = job.phase === "files" ? "indexing" : "embedding"
+        const count = job.total ? ` ${job.done}/${job.total}` : ""
+        return `dridh · ${step} · ${what}${count}${job.phase === "files" && job.total ? " files" : ""}`
+      }
+      if (state()?.human_action?.kind === "index") return `dridh · ${step} · /dridh-index to index the code`
+      const agent = sessionID ? (ctx.data.session.get(sessionID) as { agent?: string } | undefined)?.agent : undefined
+      return `dridh · ${step} · ${agent === "dridh/coordinator" ? "describe a feature to start" : "Shift+Tab: Dridh/Coordinator, describe a feature"}`
+    }
+    const statusLine = (short = false, sessionID?: string) => (
       <Show when={feature()} fallback={
         <Show when={!error()} fallback={<text fg={c.bad}>dridh · {error()!.slice(0, 72)}</text>}>
-          <Show when={unset()} fallback={<Show when={state()}><text fg={c.muted}>{short ? "dridh · ready" : "dridh · ready · press Shift+Tab for the Dridh Coordinator and say what to build"}</text></Show>}>
-            <text fg={c.muted}>{short ? "dridh · not set up" : "dridh · not set up · type /dridh to start"}</text>
+          <Show when={unset()} fallback={<Show when={state()}><text fg={c.muted}>{setupLine(sessionID)}</text></Show>}>
+            <text fg={c.muted}>{short ? "dridh · not set up" : "dridh · type /dridh to set up"}</text>
           </Show>
         </Show>}>
         <text fg={c.accent}>dridh <span style={{ fg: c.muted }}>·</span> {feature().slug} <span style={{ fg: c.muted }}>·</span> {feature().stage_label}
@@ -765,7 +850,7 @@ export default Plugin.define({
       </Show>
     )
     ctx.ui.slot({ append: "home.footer.status", render: () => statusLine() })
-    ctx.ui.slot({ append: "prompt.footer.status", render: (input) => <Show when={input.sessionID}>{statusLine(true)}</Show> })
+    ctx.ui.slot({ append: "prompt.footer.status", render: (input) => <Show when={input.sessionID}>{statusLine(true, input.sessionID)}</Show> })
 
     // ------------------------------------------------------------------ the session panel
 
@@ -862,6 +947,8 @@ export default Plugin.define({
       commands: [
         { id: "dridh.overview", title: "Dridh: overview", description: "Feature stages, documents, runs and what needs you", group: "Dridh", palette: true, slash: { name: "dridh" },
           run: () => void overview() },
+        { id: "dridh.index", title: "Dridh: index the code", description: "Build or update the Code Reacher index in the background", group: "Dridh", palette: true, slash: { name: "dridh-index" },
+          run: () => startIndex() },
         { id: "dridh.next", title: "Dridh: do the next human step", description: "Checklist, approval, lot review, start or complete", group: "Dridh", palette: true, slash: { name: "dridh-next" },
           run: () => void next() },
         { id: "dridh.review", title: "Dridh: read a document", description: "Use Cases, technical design or plan", group: "Dridh", palette: true,
