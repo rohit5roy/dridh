@@ -2,10 +2,10 @@
 
 **Path:** `dridh/opencode/plugins/dridh-bridge/`  
 **Plugin ID:** `dridh.bridge`  
-**Tool:** `dridh_bridge` (Code Mode: `tools.dridh.bridge`)  
+**Tools:** `dridh_bridge` (Code Mode: `tools.dridh.bridge`) and `dridh_code`, the read-only code search  
 **SDK:** `@opencode/plugin` 2.2.6 (lock-pinned for the build); runs on OpenCode 2.2.5 or later. Node 24 is required to build and test it.
 
-The plugin is the OpenCode side of Dridh. It registers one tool that forwards calls to the Python runtime through the [bridge protocol](BRIDGE-PROTOCOL.md), and a terminal UI (TUI) that shows the state of a Dridh feature inside OpenCode.
+The plugin is the OpenCode side of Dridh. It registers a tool that forwards calls to the Python runtime through the [bridge protocol](BRIDGE-PROTOCOL.md), a read-only code search tool, and a terminal UI (TUI) that shows the state of a Dridh feature inside OpenCode.
 
 ## Files
 
@@ -19,6 +19,7 @@ The plugin is the OpenCode side of Dridh. It registers one tool that forwards ca
 | `tests/bridge-client.test.mjs` | Bridge client tests (PL-01 to PL-23, REL-02) |
 | `tests/executable.test.mjs` | Executable resolution tests |
 | `tests/cli-result.test.mjs` | Result and error parsing tests, including the real CLI without a workspace |
+| `tests/code-search.test.mjs` | `dridh_code` and search-first enforcement, against a stand-in OpenCode context |
 | `tests/tui-plugin.test.mjs` | TUI build, wiring and command tests |
 | `tests/fake-bridge.mjs` | Deterministic fake bridge for failure injection |
 | `package.json` / `package-lock.json` | Pinned SDK, TypeScript and Node types |
@@ -112,7 +113,23 @@ The hooks apply to Dridh agents (`dridh/...`) only. Ordinary OpenCode sessions a
 | Hook | What it does | Bridge operation |
 |---|---|---|
 | session `context` | Adds a compact Dridh summary (feature, stage, next human step, blockers, the human-only rules) to the model request; cached 20 s per session | `hook.context` |
-| tool `execute.before` / `execute.after` | Records each tool call's metadata in `tool_invocation`: tool, agent, session, status, duration, input key names and SHA-256 (never the input) | `hook.tool_call` |
+| tool `execute.before` / `execute.after` | Records each tool call's metadata in `tool_invocation`: tool, agent, session, status, duration, input key names and SHA-256 (never the input). For Dridh tools the operation is part of the name (`opencode.tool:dridh_code:lookup`) | `hook.tool_call` |
+| tool `execute.before` | Search first: a Dridh agent's `grep` or `glob` is refused until that session has searched with `dridh_code` (or a `code_reacher.*` operation); the model sees why. The refusal is recorded with `TOOL_REFUSED` | `hook.tool_call` |
 | event stream | Records `session.execution.*` and `session.compaction.*` of Dridh sessions. Events that arrive before a session is identified are buffered and flushed | `hook.session_event` |
 
 The hook operations are not in the `dridh_bridge` tool's allow-list.
+
+## Code search first (`dridh_code`)
+
+Every Dridh agent, the tool-less workers included, is granted `dridh_code` and told in its profile ("Finding code") to
+use it before `grep` or `glob`. Its operations are Code Reacher's read-only ones: `lookup` (by meaning or by name),
+`symbol`, `dependencies`, `code_for`, `owners` and `index_status`; indexing stays with the Coordinator. Each call
+reaches the bridge as `code_reacher.<operation>`, as the calling agent. After the first search in a session, `grep` and
+`glob` are allowed for exact text or when the index has no answer.
+
+## Working indicator
+
+While Dridh is working (setting up, indexing, syncing a feature, a review, or a Dridh tool call in a session) the
+status line starts with a braille spinner and what is being done, for example `⠹ dridh · searching code`. The Dridh
+panel shows the same spinner below its list (the setup steps or the feature overview), for example
+`⠹ indexing the code · embedding 42%…`. The frame timer runs only while something is in progress.

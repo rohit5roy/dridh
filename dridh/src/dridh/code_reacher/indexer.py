@@ -26,6 +26,7 @@ from dridh.state.store import StateStore, utc_now
 from dridh.workspace.layout import WorkspaceInfo
 
 EMBED_CHUNK = 512
+PROGRESS_STEP = 64  # embeddings between progress reports
 
 Progress = Callable[[str, int, int], None]
 
@@ -296,10 +297,14 @@ class CodeIndexer:
                 for start in range(0, max(len(items), 1), EMBED_CHUNK):
                     with store.transaction() as connection:
                         vectors = VectorStore(connection, self.workspace.workspace_id)
-                        written += vectors.upsert(provider, items[start:start + EMBED_CHUNK])
+                        chunk = items[start:start + EMBED_CHUNK]
+                        # Embedded in smaller steps so progress moves every few seconds with the real model; still committed
+                        # once per chunk.
+                        for step in range(0, len(chunk), PROGRESS_STEP):
+                            written += vectors.upsert(provider, chunk[step:step + PROGRESS_STEP])
+                            self._progress("embeddings", start + min(step + PROGRESS_STEP, len(chunk)), len(items))
                         vectors.sync_vec_table(provider.dimensions)
                         vec_available = vectors.vec_available
-                    self._progress("embeddings", min(start + EMBED_CHUNK, len(items)), len(items))
             return {**describe(provider), "written": written, "sqlite_vec": vec_available}
         except Exception as exc:  # noqa: BLE001 - the structural index is already committed; report, don't fail
             return {"error": f"{type(exc).__name__}: {exc}"[:300], "written": 0}

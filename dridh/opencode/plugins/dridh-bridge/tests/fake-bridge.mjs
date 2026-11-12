@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { readFileSync } from "node:fs"
+import { appendFileSync, readFileSync } from "node:fs"
 
 const raw = readFileSync(0, "utf8")
 let request = {}
@@ -9,6 +9,8 @@ try {
   process.stdout.write("not json\n")
   process.exit(0)
 }
+
+if (process.env.FAKE_BRIDGE_LOG) appendFileSync(process.env.FAKE_BRIDGE_LOG, JSON.stringify(request) + "\n")
 
 const mode = process.env.FAKE_BRIDGE_MODE ?? "success"
 const requestId = request.request_id ?? "missing"
@@ -31,6 +33,9 @@ function fail(code, message, details = []) {
 switch (mode) {
   case "success":
     ok({ status: "healthy", echo: request.payload ?? {} })
+    break
+  case "echo":
+    ok({ operation: request.operation, payload: request.payload ?? {}, caller: request.caller ?? null })
     break
   case "info":
     ok({ package: "dridh", package_version: "0.1.0", operations: ["runtime.ping", "runtime.info"] })

@@ -9,6 +9,7 @@ The scenario is a person's first run in a project:
   4. back on the home screen: "dridh · setup 2/2"
   5. /cd into another folder (code, no workspace): the TUI follows OpenCode there: "type /dridh to set up"
   6. /dridh there, "Existing codebase": indexing starts in the background, its progress in the status line
+     behind the working spinner, and the spinner below the setup steps in the panel
   7. "Code indexed (N files)": the setup moves to step 3 of 3, OpenCode stays in that folder
   8. a real Dridh error (the state database is corrupted): its message, never raw JSON
 
@@ -123,6 +124,8 @@ def render_png(ansi: str, path: Path) -> bool:
         return False
     size = 28  # drawn at 2x for a sharp image
     regular = ImageFont.truetype(fonts[0], size)
+    sans = Path("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf")
+    braille = ImageFont.truetype(str(sans), size) if sans.is_file() else regular  # DejaVu Sans Mono has no braille (the spinner)
     bold = ImageFont.truetype(fonts[-1], size)
     cell_w = round(regular.getlength("M"))
     cell_h = round(size * 1.25)
@@ -141,7 +144,8 @@ def render_png(ansi: str, path: Path) -> bool:
             elif ch == "▄":
                 draw.rectangle([left, top + cell_h // 2, left + cell_w - 1, top + cell_h - 1], fill=fg)
             elif not ch.isspace():
-                draw.text((left, top + (cell_h - size) // 2), ch, font=bold if is_bold else regular, fill=fg)
+                face = braille if "\u2800" <= ch <= "\u28ff" else bold if is_bold else regular
+                draw.text((left, top + (cell_h - size) // 2), ch, font=face, fill=fg)
     image.save(path)
     return True
 
@@ -276,7 +280,8 @@ def main() -> int:
             keys("Enter")
             smoke.wait("6a-setup-choice-existing", "Set up Dridh")
             keys("Down", "Enter")  # the second option: Existing codebase
-            smoke.glimpse("6b-indexing-in-the-background", rf"indexing \d+/{OTHER_FILES} files")
+            smoke.glimpse("6b-indexing-in-the-background", rf"[\u2800-\u28ff] .*indexing \d+/{OTHER_FILES} files")  # spinner + progress
+            smoke.glimpse("6c-working-in-the-panel", r"[\u2800-\u28ff] indexing the code", timeout=5)  # the panel's spinner, below the steps
             smoke.wait("7-indexed", f"Code indexed ({OTHER_FILES} files)", timeout=240, forbid=raw_json)
             smoke.wait("7a-setup-step-3", "Setup · step 3 of 3")
             workspace = json.loads((other / ".opencode" / "dridh" / "workspace.json").read_text())
