@@ -83,9 +83,11 @@ Exit code `0` is not success by itself. `ok: false` with exit `0` is mapped to `
 
 `tui/index.tsx` runs in OpenCode's terminal UI. It does not change OpenCode. It reads state with read-only `dridh ui` commands, and it changes state only through existing Dridh CLI commands.
 
-- **Session panel.** Inside a session, the Dridh views (overview, checklist, document, execution lot) open in the session panel beside the conversation. On the home screen they open as full pages. Documents render through `glow` when it is installed, with Mermaid diagrams drawn as text.
+- **Session panel.** Inside a session, the Dridh views (overview, checklist, document, execution lot) open in the session panel beside the conversation. On the home screen they open in a large dialog, so closing one leaves OpenCode in its current folder. Documents render through `glow` when it is installed, with Mermaid diagrams drawn as text.
 - **Sidebar.** A Dridh section lists the stages, the documents, the open checklist, the next step and the actions. Each line can be clicked, or run by its command.
 - **First run.** In a project without a Dridh workspace, `/dridh` asks whether the project is a new or an existing codebase (the person chooses; the mode is never guessed), runs `dridh init --mode ...` and opens the overview. Until then the status line reads `dridh · not set up · type /dridh to start`.
+- **Folder changes.** The TUI reads OpenCode's current folder on every refresh, so after `/cd` the status line, `/dridh` and every command act on the new folder; what was shown for the previous one is cleared.
+- **Existing codebase.** When setup chooses *Existing codebase*, the TUI offers to index it: `dridh index` runs in the terminal with its progress visible. Cancelling leaves the index to the Dridh Coordinator (`code_reacher.index`).
 - **Status line.** A one-line status shows in the home screen footer, and in the prompt footer while a session is open: the feature and its stage, `dridh · ready` when the project is set up but has no feature yet, or an error as its message (never raw JSON).
 - **Slash commands.** `/dridh` opens the overview (or the first-run setup); `/dridh-next` does the next human step; `/dridh-review` opens a document (`use cases`, `design` or `plan`); `/dridh-checklist` opens the review checklist; `/dridh-approve` approves the document under review; `/dridh-lot` opens the execution lot review. The same actions are in the command palette.
 - **Human confirmations.** Approvals, lot verdicts, starting a run and completing a feature are typed confirmations. For those, the plugin suspends OpenCode's screen, as OpenCode does for `$EDITOR`, and hands the real terminal to the Dridh command. The person types the confirmation into Dridh's own prompt. The plugin never sees or types it. Agents have no tool that reaches any of this.
@@ -101,7 +103,7 @@ npm ci
 npm test
 ```
 
-`npm test` builds with `tsc` and runs the Node test suite: 43 tests in four files. `bridge-client.test.mjs` uses the real `dridh bridge` for PL-01, PL-02 and PL-04, and a fake bridge for the rest. The real bridge path can be set with `DRIDH_BIN`.
+`npm test` builds with `tsc` and runs the Node test suite: 45 tests in four files. `bridge-client.test.mjs` uses the real `dridh bridge` for PL-01, PL-02 and PL-04, and a fake bridge for the rest. The real bridge path can be set with `DRIDH_BIN`.
 
 ## Hooks
 
