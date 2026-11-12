@@ -79,6 +79,13 @@ test("setting up an existing codebase indexes it in the background, with progres
   assert.match(source, /slash: \{ name: "dridh-index" \},\s*run: \(\) => startIndex\(\)/, "/dridh-index starts it by hand")
 })
 
+test("vectors from an older search model or text are rebuilt in the background, once per folder per session", () => {
+  assert.match(source, /next\?\.code_index\?\.vectors_stale && !indexing\(\) && !reindexed\.has\(folder\)/, "only when stale, idle and not tried yet")
+  assert.match(source, /reindexed\.add\(folder\)[\s\S]{0,300}startIndex\("upgrade"\)/, "remembered before starting, so a failure is not retried in a loop")
+  assert.match(source, /Code search was improved\. Re-indexing the code in the background\./, "the user is told why indexing started")
+  assert.match(source, /why === "upgrade" \? `Code search is up to date/, "and when it is done")
+})
+
 test("before the first feature the TUI shows the setup steps and one next action", () => {
   assert.ok(source.includes("Setup · step"), "the overview shows which step setup is at")
   assert.match(source, /`dridh · \$\{step\} · /, "the status line shows the setup step")

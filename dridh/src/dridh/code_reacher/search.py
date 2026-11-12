@@ -10,7 +10,7 @@ import re
 import sqlite3
 from typing import Any
 
-from dridh.code_reacher.embeddings import EmbeddingProvider, VectorStore, default_provider, describe, split_identifier
+from dridh.code_reacher.embeddings import EmbeddingProvider, VectorStore, default_provider, describe, split_identifier, vector_freshness
 from dridh.code_reacher.indexer import require_index
 from dridh.common.errors import DridhError, ErrorCode
 from dridh.state.store import StateStore
@@ -19,6 +19,8 @@ from dridh.workspace.layout import WorkspaceInfo
 MAX_DEPTH = 5
 MAX_RESULTS = 50
 _RRF_K = 60
+STALE_NOTE = ("The code was embedded with an older search model or text, so only full-text matches are returned. "
+              "Re-index (code_reacher.index, or `dridh index`) to rebuild the vectors.")
 
 
 def _entity_dict(row: sqlite3.Row) -> dict[str, Any]:
@@ -83,6 +85,9 @@ class CodeSearch:
                     vectors = VectorStore(connection, self.workspace.workspace_id)
                     vector = vectors.search(provider, query, limit * 3)
                     vector_info = {**describe(provider), "used": bool(vector), "sqlite_vec": vectors.vec_available}
+                    if not vector and vector_freshness(connection, self.workspace.workspace_id)["stale"]:
+                        vector_info["stale"] = True
+                        vector_info["note"] = STALE_NOTE
                 except Exception as exc:  # noqa: BLE001 - semantic search is optional; lexical results still stand
                     vector_info = {"used": False, "error": f"{type(exc).__name__}: {exc}"[:200]}
             scores: dict[str, float] = {}
@@ -242,6 +247,8 @@ class CodeSearch:
                 "entities": by_type,
                 "relations": {"total": relations[0], "unresolved": relations[1] or 0},
                 "endpoints": count("SELECT COUNT(*) FROM code_api_endpoint a JOIN code_file f ON f.id=a.source_file_id WHERE f.index_run_id=?", run["id"]),
-                "embeddings": [{"model": r[0], "dimensions": r[1], "entities": r[2]} for r in embedded],
+                "embeddings": [{"model": r[0].split("+")[0], "text": (r[0].split("+") + [""])[1] or None, "dimensions": r[1], "entities": r[2]}
+                               for r in embedded],
+                "vectors_stale": vector_freshness(connection, self.workspace.workspace_id)["stale"],
                 "sqlite_vec": vec,
             }

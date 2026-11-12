@@ -10,7 +10,8 @@ The scenario is a person's first run in a project:
   5. /cd into another folder (code, no workspace): the TUI follows OpenCode there: "type /dridh to set up"
   6. /dridh there, "Existing codebase": indexing starts in the background, its progress in the status line
      behind the working spinner, and the spinner below the setup steps in the panel
-  7. "Code indexed (N files)": the setup moves to step 3 of 3, OpenCode stays in that folder
+  7. "Code indexed (N files)": the setup moves to step 3 of 3, OpenCode stays in that folder; then, as after an upgrade
+     that changes the search model, the stored vectors are made stale and the panel re-indexes on its own
   8. a real Dridh error (the state database is corrupted): its message, never raw JSON
 
 Dridh is installed into a throwaway HOME with `dridh install`, and OpenCode is started with a PATH that does NOT
@@ -29,10 +30,12 @@ import json
 import os
 import re
 import shutil
+import sqlite3
 import subprocess
 import sys
 import tempfile
 import time
+from contextlib import closing
 from pathlib import Path
 
 WIDTH, HEIGHT = 160, 45
@@ -293,7 +296,19 @@ def main() -> int:
                 smoke.save("7b-FAILED-folder")
                 raise StepFailed("7b-ready-in-other-folder: OpenCode is no longer in the folder /cd moved to")
 
+            # An upgrade changes the search model or the embedded text: the stored vectors are then stale (made as an
+            # older release made them), and the panel re-indexes in the background on its own.
             database = other / ".opencode" / "dridh" / "state" / "dridh.sqlite"
+            with closing(sqlite3.connect(database)) as connection, connection:
+                connection.execute("UPDATE code_embedding SET model='BAAI/bge-small-en-v1.5'")
+            smoke.wait("7c-search-model-changed", "Code search was improved", forbid=raw_json)
+            smoke.glimpse("7d-re-indexing", r"[\u2800-\u28ff] .*indexing", timeout=5)
+            smoke.wait("7e-re-indexed", "Code search is up to date", timeout=240, forbid=raw_json)
+            with closing(sqlite3.connect(database)) as connection:
+                stored = {row[0] for row in connection.execute("SELECT DISTINCT model FROM code_embedding")}
+            if not stored or any(model.startswith("BAAI/") for model in stored):
+                raise StepFailed(f"7e-re-indexed: the vectors were not rebuilt ({sorted(stored)})")
+
             for suffix in ("-wal", "-shm"):
                 Path(f"{database}{suffix}").unlink(missing_ok=True)
             database.write_text("not a database, written by the smoke test to cause a real Dridh error")

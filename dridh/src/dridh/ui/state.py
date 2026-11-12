@@ -181,6 +181,17 @@ def _setup(info: WorkspaceInfo) -> dict[str, Any]:
     return {"step": current + 1, "total": len(steps), "steps": steps, "index": index}
 
 
+def _vectors_stale(info: WorkspaceInfo) -> bool:
+    """True when the code index's vectors were made by another search model or text format (after an upgrade), so the
+    panel re-indexes in the background. Two indexed lookups; never loads the model."""
+    from dridh.code_reacher.embeddings import vector_freshness
+
+    if not info.state_db.exists():
+        return False
+    with StateStore(info.state_db, info.workspace_id) as store:
+        return bool(vector_freshness(store.read(), info.workspace_id)["stale"])
+
+
 def workspace_state(info: WorkspaceInfo, feature_ref: str | None = None) -> dict[str, Any]:
     from dridh.coordinator.lifecycle import FeatureLifecycle
 
@@ -192,7 +203,7 @@ def workspace_state(info: WorkspaceInfo, feature_ref: str | None = None) -> dict
         action = ({"kind": "index", "text": "Index the code: /dridh-index."} if current and current["id"] == "index"
                   else {"kind": "create", "text": "Select Dridh/Coordinator (Shift+Tab) and describe a feature."})
         return {"workspace": str(info.project_root), "mode": info.mode, "feature": None, "features": [],
-                "setup": setup, "human_action": action}
+                "setup": setup, "human_action": action, "code_index": {"vectors_stale": _vectors_stale(info)}}
     active = [f for f in features if f["stage"] != "COMPLETED"]
     chosen = next((f for f in features if f["slug"] == feature_ref), None) if feature_ref else (active or features)[-1]
     if chosen is None:
@@ -213,6 +224,7 @@ def workspace_state(info: WorkspaceInfo, feature_ref: str | None = None) -> dict
         "features": [{"slug": f["slug"], "stage": f["stage"]} for f in features],
         "timeline": timeline, "documents": stages, "runs": runs,
         "human_action": _human_action(feature, stages, runs),
+        "code_index": {"vectors_stale": _vectors_stale(info)},
     }
 
 

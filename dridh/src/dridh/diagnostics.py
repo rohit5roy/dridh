@@ -42,7 +42,7 @@ OPTIONAL_PACKAGES = (
     ("tree_sitter", "Tree-sitter parser (Code Reacher)", "Code Reacher cannot parse source files", "Reinstall Dridh; tree-sitter is a runtime dependency."),
     ("sqlite_vec", "sqlite-vec vector search (Code Reacher)", "an exact search over stored vectors is used instead", "Reinstall Dridh; sqlite-vec is a runtime dependency."),
     ("fastembed", "FastEmbed local embeddings (Code Reacher)", "a deterministic hashing embedder is used and semantic results report degraded",
-     "Install the optional extra: uv tool install --with fastembed==0.9.1 dridh  (or pip install 'dridh[embeddings]'); the model (about 65 MB) downloads from huggingface.co on first use into ~/.cache/dridh/fastembed."),
+     "Install the optional extra: uv tool install --with fastembed==0.9.1 dridh  (or pip install 'dridh[embeddings]'); the model (about 130 MB) downloads from huggingface.co on first use into ~/.cache/dridh/fastembed."),
 )
 
 Runner = Callable[[list[str]], "subprocess.CompletedProcess[str]"]

@@ -24,7 +24,8 @@ class Entity:
     start_line: int
     end_line: int
     signature: str | None = None
-    doc: str = ""
+    doc: str = ""  # first line of the doc comment (full-text search)
+    doc_text: str = ""  # the whole doc comment, cleaned (the text that is embedded)
     parameters: list[Parameter] = field(default_factory=list)
 
 
