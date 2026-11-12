@@ -7,7 +7,10 @@ The scenario is a person's first run in a project:
   2. /dridh: the choice "Dridh isn't set up in this project" (new or existing codebase)
   3. choosing "New codebase": the workspace is created and the overview opens
   4. back on the home screen: "dridh · ready"
-  5. a real Dridh error (the state database is corrupted): its message, never raw JSON
+  5. /cd into another folder (code, no workspace): the TUI follows OpenCode there: "dridh · not set up"
+  6. /dridh there, "Existing codebase": the index is offered and runs in the terminal with its progress
+  7. back in OpenCode: the codebase is indexed and the folder is "dridh · ready"
+  8. a real Dridh error (the state database is corrupted): its message, never raw JSON
 
 Dridh is installed into a throwaway HOME with `dridh install`, and OpenCode is started with a PATH that does NOT
 contain dridh, so the plugin must find it through the installer's record. No model or credential is used.
@@ -210,9 +213,11 @@ def main() -> int:
         return 2
 
     with tempfile.TemporaryDirectory(prefix="dridh-tui-smoke-") as tmp:
-        home, project = Path(tmp) / "home", Path(tmp) / "project"
+        home, project, other = Path(tmp) / "home", Path(tmp) / "project", Path(tmp) / "other"
         home.mkdir()
         project.mkdir()
+        other.mkdir()
+        (other / "app.py").write_text("def greet(name):\n    return f'Hello, {name}'\n")
         install = subprocess.run([str(dridh), "install"], env={**os.environ, "HOME": str(home)},  # noqa: S603
                                  capture_output=True, text=True, timeout=300, check=False)
         if install.returncode != 0:
@@ -245,11 +250,38 @@ def main() -> int:
             keys("Escape")
             smoke.wait("4-ready", "dridh · ready", forbid=raw_json)
 
-            database = project / ".opencode" / "dridh" / "state" / "dridh.sqlite"
+            # /cd: OpenCode moves to another folder and the TUI must follow it, not keep the one it started in.
+            keys(f"/cd {other}")
+            time.sleep(1)
+            keys("Enter", "Enter")
+            smoke.wait("5-cd-other-folder", "dridh · not set up · type /dridh to start", forbid=raw_json)
+
+            keys("/dridh")
+            time.sleep(1)
+            keys("Enter")
+            smoke.wait("6a-setup-choice-existing", "Dridh isn't set up in this project")
+            keys("Down", "Enter")  # the second option: Existing codebase
+            smoke.wait("6b-index-offer", "Index the codebase")
+            keys("Enter")  # Continue in terminal
+            smoke.wait("6c-indexing-in-terminal", "[dridh exited 0]", timeout=180)
+            keys("Enter")  # back to OpenCode
+            smoke.wait("7-indexed", "The codebase is indexed", forbid=raw_json)
+            workspace = json.loads((other / ".opencode" / "dridh" / "workspace.json").read_text())
+            if workspace.get("mode") != "existing":
+                raise StepFailed(f"7-indexed: workspace mode is {workspace.get('mode')!r}, expected 'existing'")
+            if (project / ".opencode" / "dridh" / "workspace.json").read_text() == "":
+                raise StepFailed("7-indexed: the first project's workspace was touched")
+            keys("Escape")
+            smoke.wait("7b-ready-in-other-folder", "dridh · ready", forbid=raw_json)
+            if f"/{other.name} " not in screen():
+                smoke.save("7b-FAILED-folder")
+                raise StepFailed("7b-ready-in-other-folder: OpenCode is no longer in the folder /cd moved to")
+
+            database = other / ".opencode" / "dridh" / "state" / "dridh.sqlite"
             for suffix in ("-wal", "-shm"):
                 Path(f"{database}{suffix}").unlink(missing_ok=True)
             database.write_text("not a database, written by the smoke test to cause a real Dridh error")
-            smoke.wait("5-error-message", "dridh · The workflow state database could not be opened", forbid=raw_json)
+            smoke.wait("8-error-message", "dridh · The workflow state database could not be opened", forbid=raw_json)
         except StepFailed as failure:
             print(f"FAIL {failure}", file=sys.stderr)
             err = Path(tmp) / "opencode.err"

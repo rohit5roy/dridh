@@ -224,7 +224,7 @@ class CodeSearch:
                 "SELECT * FROM code_index_run WHERE workspace_id=? AND status='SUCCEEDED' ORDER BY started_at DESC, rowid DESC LIMIT 1",
                 (self.workspace.workspace_id,)).fetchone()
             if run is None:
-                return {"indexed": False, "message": "No successful index. Run `dridh index`."}
+                return {"indexed": False, "message": "No successful index yet. The Dridh Coordinator builds it with code_reacher.index; from a terminal, run `dridh index`."}
             def count(sql: str, *params: Any) -> Any:
                 return connection.execute(sql, params).fetchone()[0]
             by_language = {r[0]: r[1] for r in connection.execute("SELECT language, COUNT(*) FROM code_file WHERE index_run_id=? GROUP BY language", (run["id"],))}

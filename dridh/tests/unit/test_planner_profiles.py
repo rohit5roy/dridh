@@ -33,3 +33,14 @@ def test_indexer_and_testing_workers_require_traceability_and_real_dependencies(
     assert "TESTCONTAINERS first" in testing
     assert "WIREMOCK_EXCEPTION" in testing
     assert "Do not propose routine mocks" in testing
+
+
+def test_the_coordinator_indexes_an_existing_codebase_itself():
+    """In an existing codebase the Coordinator builds the Code Reacher index with code_reacher.index; it does not send
+    the person to a terminal (a user was told to run `dridh index` although the Coordinator may run it)."""
+    from pathlib import Path
+
+    text = (Path(__file__).resolve().parents[2] / "opencode" / "agents" / "dridh" / "coordinator.md").read_text(encoding="utf-8")
+    rule = next(line for line in text.splitlines() if "check `code_reacher.index_status` before the Ideator" in line)
+    assert "build it yourself with `code_reacher.index`" in rule
+    assert "never send the user to a terminal for it" in rule
