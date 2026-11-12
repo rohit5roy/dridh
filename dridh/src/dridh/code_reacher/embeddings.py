@@ -83,6 +83,12 @@ class FastEmbedProvider:
     def __init__(self) -> None:
         from fastembed import TextEmbedding  # lazy: pulls in ONNX Runtime
 
+        try:  # ONNX Runtime logs warnings (e.g. "Failed to persist telemetry device ID" on macOS) that are not Dridh's
+            import onnxruntime
+
+            onnxruntime.set_default_logger_severity(3)
+        except Exception:  # noqa: BLE001, S110 - only quieter logs; never a reason to fail
+            pass
         self._model = TextEmbedding(model_name=FASTEMBED_MODEL, cache_dir=model_cache_dir())
 
     def embed(self, texts: list[str]) -> list[list[float]]:

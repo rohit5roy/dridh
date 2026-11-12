@@ -162,14 +162,37 @@ def _human_action(feature: dict[str, Any], stages: dict[str, Any], runs: list[di
     return None
 
 
+def _setup(info: WorkspaceInfo) -> dict[str, Any]:
+    """The first-run steps, until the first feature exists: set up, index (existing codebases only), start a feature."""
+    steps = [{"id": "workspace", "label": f"Set up this project ({'existing' if info.mode == 'existing' else 'new'} codebase)", "done": True}]
+    index: dict[str, Any] | None = None
+    if info.mode == "existing":
+        from dridh.code_reacher.search import CodeSearch
+
+        status = CodeSearch(info).status()
+        index = {"indexed": bool(status.get("indexed")), "files": (status.get("files") or {}).get("total", 0)}
+        count = index["files"]
+        label = f"Index the code ({count} file{'' if count == 1 else 's'})" if index["indexed"] else "Index the code"
+        steps.append({"id": "index", "label": label, "done": index["indexed"]})
+    steps.append({"id": "feature", "label": "Start your first feature", "done": False})
+    current = next(i for i, step in enumerate(steps) if not step["done"])
+    for i, step in enumerate(steps):
+        step["state"] = "done" if step.pop("done") else "current" if i == current else "todo"
+    return {"step": current + 1, "total": len(steps), "steps": steps, "index": index}
+
+
 def workspace_state(info: WorkspaceInfo, feature_ref: str | None = None) -> dict[str, Any]:
     from dridh.coordinator.lifecycle import FeatureLifecycle
 
     lifecycle = FeatureLifecycle(info)
     features = lifecycle.list_features()
     if not features:
+        setup = _setup(info)
+        current = next((step for step in setup["steps"] if step["state"] == "current"), None)
+        action = ({"kind": "index", "text": "Index the code: /dridh-index."} if current and current["id"] == "index"
+                  else {"kind": "create", "text": "Select Dridh/Coordinator (Shift+Tab) and describe a feature."})
         return {"workspace": str(info.project_root), "mode": info.mode, "feature": None, "features": [],
-                "human_action": {"kind": "create", "text": "Tell the Coordinator what you want to build."}}
+                "setup": setup, "human_action": action}
     active = [f for f in features if f["stage"] != "COMPLETED"]
     chosen = next((f for f in features if f["slug"] == feature_ref), None) if feature_ref else (active or features)[-1]
     if chosen is None:

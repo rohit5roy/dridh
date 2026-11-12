@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import posixpath
 import uuid
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +26,8 @@ from dridh.state.store import StateStore, utc_now
 from dridh.workspace.layout import WorkspaceInfo
 
 EMBED_CHUNK = 512
+
+Progress = Callable[[str, int, int], None]
 
 
 def parse(item: SourceFile, python_packages: frozenset[str] = frozenset()) -> ParsedFile:
@@ -53,6 +56,7 @@ class CodeIndexer:
     def __init__(self, workspace: WorkspaceInfo, *, provider: EmbeddingProvider | None = None) -> None:
         self.workspace = workspace
         self._provider = provider
+        self._progress: Progress = lambda phase, done, total: None
 
     @property
     def provider(self) -> EmbeddingProvider:
@@ -60,8 +64,12 @@ class CodeIndexer:
             self._provider = default_provider()
         return self._provider
 
-    def index(self, *, embed: bool = True, root: Path | None = None) -> dict[str, Any]:
-        """Index ``root`` (default: the project). A clean Git tree is identified by its HEAD commit."""
+    def index(self, *, embed: bool = True, root: Path | None = None, progress: Progress | None = None) -> dict[str, Any]:
+        """Index ``root`` (default: the project). A clean Git tree is identified by its HEAD commit.
+
+        ``progress(phase, done, total)`` is called as work advances: ``files`` while files are parsed, ``embeddings``
+        while vectors are written. It must not raise; it is for display only."""
+        self._progress = progress or (lambda phase, done, total: None)
         result = self._index(embed=embed, root=root)
         if result["unchanged"] and embed:
             # Embedding is incremental: an unchanged snapshot still gets the vectors an interrupted run never wrote.
@@ -104,7 +112,9 @@ class CodeIndexer:
                         self._drop_file(connection, row["id"])
                         removed += 1
                 changed: list[tuple[SourceFile, ParsedFile]] = []
-                for item in files:
+                self._progress("files", 0, len(files))
+                for done, item in enumerate(files, start=1):
+                    self._progress("files", done, len(files))
                     row = known.get(item.path)
                     if row is not None and row["content_sha256"] == item.sha256 and row["language"] == item.language:
                         connection.execute("UPDATE code_file SET index_run_id=? WHERE id=?", (run_id, row["id"]))
@@ -280,6 +290,7 @@ class CodeIndexer:
                     "WHERE f.index_run_id=? AND e.entity_type!='module'", (run_id,)).fetchall()
                 items = [(row["id"], entity_text(row, row["path"]), snapshot) for row in rows if row["id"] not in have]
                 written, vec_available = 0, False
+                self._progress("embeddings", 0, len(items))
                 # In chunks, each committed: memory stays bounded on large repositories (Django: 44k entities), the
                 # database is not locked for the whole run, and an interrupted run keeps what it embedded.
                 for start in range(0, max(len(items), 1), EMBED_CHUNK):
@@ -288,6 +299,7 @@ class CodeIndexer:
                         written += vectors.upsert(provider, items[start:start + EMBED_CHUNK])
                         vectors.sync_vec_table(provider.dimensions)
                         vec_available = vectors.vec_available
+                    self._progress("embeddings", min(start + EMBED_CHUNK, len(items)), len(items))
             return {**describe(provider), "written": written, "sqlite_vec": vec_available}
         except Exception as exc:  # noqa: BLE001 - the structural index is already committed; report, don't fail
             return {"error": f"{type(exc).__name__}: {exc}"[:300], "written": 0}

@@ -497,6 +497,7 @@ def index_command(
     project: str = PROJECT_OPTION,
     status: bool = typer.Option(False, "--status", help="Show the current index instead of updating it."),
     no_embed: bool = typer.Option(False, "--no-embed", help="Skip semantic embeddings (full-text and call graph only)."),
+    progress: bool = typer.Option(False, "--progress", help="Report progress on stderr as JSON lines (for the OpenCode TUI)."),
 ) -> None:
     """Build or incrementally update the Code Reacher index of this project (only changed files are re-parsed)."""
 
@@ -509,9 +510,27 @@ def index_command(
     if status:
         _emit(CodeSearch(workspace).status())
         return
-    result = CodeIndexer(workspace).index(embed=not no_embed)
+    result = CodeIndexer(workspace).index(embed=not no_embed, progress=_progress_reporter() if progress else None)
     result["story_mapping"] = refresh_mapping(workspace)
     _emit(result)
+
+
+def _progress_reporter():  # type: ignore[no-untyped-def]
+    """Progress as JSON lines on stderr, at most about five a second per phase; the start and end of a phase always."""
+    import json
+    import time
+
+    last: dict[str, float] = {}
+
+    def report(phase: str, done: int, total: int) -> None:
+        now = time.monotonic()
+        if done not in (0, total) and now - last.get(phase, 0.0) < 0.2:
+            return
+        last[phase] = now
+        sys.stderr.write(json.dumps({"progress": phase, "done": done, "total": total}) + "\n")
+        sys.stderr.flush()
+
+    return report
 
 
 def _code_search(project: str):  # type: ignore[no-untyped-def]

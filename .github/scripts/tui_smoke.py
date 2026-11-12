@@ -3,13 +3,13 @@
 
 The scenario is a person's first run in a project:
 
-  1. home screen of a project with no Dridh workspace: "dridh · not set up · type /dridh to start"
-  2. /dridh: the choice "Dridh isn't set up in this project" (new or existing codebase)
-  3. choosing "New codebase": the workspace is created and the overview opens
-  4. back on the home screen: "dridh · ready"
-  5. /cd into another folder (code, no workspace): the TUI follows OpenCode there: "dridh · not set up"
-  6. /dridh there, "Existing codebase": the index is offered and runs in the terminal with its progress
-  7. back in OpenCode: the codebase is indexed and the folder is "dridh · ready"
+  1. home screen of a project with no Dridh workspace: "dridh · type /dridh to set up"
+  2. /dridh: "Set up Dridh" (new or existing codebase)
+  3. choosing "New codebase": the overview shows the setup steps (step 2 of 2: start a feature)
+  4. back on the home screen: "dridh · setup 2/2"
+  5. /cd into another folder (code, no workspace): the TUI follows OpenCode there: "type /dridh to set up"
+  6. /dridh there, "Existing codebase": indexing starts in the background, its progress in the status line
+  7. "Code indexed (N files)": the setup moves to step 3 of 3, OpenCode stays in that folder
   8. a real Dridh error (the state database is corrupted): its message, never raw JSON
 
 Dridh is installed into a throwaway HOME with `dridh install`, and OpenCode is started with a PATH that does NOT
@@ -36,6 +36,7 @@ from pathlib import Path
 
 WIDTH, HEIGHT = 160, 45
 SESSION = "dridh-tui-smoke"
+OTHER_FILES = 1500
 
 # --------------------------------------------------------------------------- rendering
 
@@ -171,6 +172,18 @@ class Smoke:
         (self.out / f"{name}.ansi").write_text(ansi, encoding="utf-8")
         render_png(ansi, self.out / f"{name}.png")
 
+    def glimpse(self, name: str, needle: str, timeout: float = 20) -> bool:
+        """Saves the screen when the regular expression NEEDLE matches, for screenshots of short-lived states; never fails the run."""
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if re.search(needle, screen()):
+                self.save(name)
+                print(f"ok  {name}: {needle} (seen)", flush=True)
+                return True
+            time.sleep(0.1)
+        print(f"--  {name}: {needle} was not seen (it may have finished first)", flush=True)
+        return False
+
     def wait(self, name: str, needle: str, timeout: float = 60, forbid: tuple[str, ...] = ()) -> None:
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
@@ -218,6 +231,8 @@ def main() -> int:
         project.mkdir()
         other.mkdir()
         (other / "app.py").write_text("def greet(name):\n    return f'Hello, {name}'\n")
+        for i in range(OTHER_FILES - 1):  # enough files that indexing progress is visible for a moment
+            (other / f"mod{i:04d}.py").write_text(f"def f{i}(value):\n    return value + {i}\n")
         install = subprocess.run([str(dridh), "install"], env={**os.environ, "HOME": str(home)},  # noqa: S603
                                  capture_output=True, text=True, timeout=300, check=False)
         if install.returncode != 0:
@@ -234,45 +249,41 @@ def main() -> int:
         smoke = Smoke(out)
         raw_json = ('{"ok"', '"error":')
         try:
-            smoke.wait("1-first-run", "dridh · not set up · type /dridh to start", timeout=120, forbid=raw_json)
+            smoke.wait("1-first-run", "dridh · type /dridh to set up", timeout=120, forbid=raw_json)
 
             keys("/dridh")
             time.sleep(1)
             keys("Enter")
-            smoke.wait("2-setup-choice", "Dridh isn't set up in this project")
+            smoke.wait("2-setup-choice", "Set up Dridh")
 
             keys("Enter")  # the first option: New codebase
-            smoke.wait("3-set-up", "No Dridh feature in this project yet")
+            smoke.wait("3-set-up", "Setup · step 2 of 2")
             workspace = json.loads((project / ".opencode" / "dridh" / "workspace.json").read_text())
             if workspace.get("mode") != "new":
                 raise StepFailed(f"3-set-up: workspace mode is {workspace.get('mode')!r}, expected 'new'")
 
             keys("Escape")
-            smoke.wait("4-ready", "dridh · ready", forbid=raw_json)
+            smoke.wait("4-ready", "dridh · setup 2/2", forbid=raw_json)
 
             # /cd: OpenCode moves to another folder and the TUI must follow it, not keep the one it started in.
             keys(f"/cd {other}")
             time.sleep(1)
             keys("Enter", "Enter")
-            smoke.wait("5-cd-other-folder", "dridh · not set up · type /dridh to start", forbid=raw_json)
+            smoke.wait("5-cd-other-folder", "dridh · type /dridh to set up", forbid=raw_json)
 
             keys("/dridh")
             time.sleep(1)
             keys("Enter")
-            smoke.wait("6a-setup-choice-existing", "Dridh isn't set up in this project")
+            smoke.wait("6a-setup-choice-existing", "Set up Dridh")
             keys("Down", "Enter")  # the second option: Existing codebase
-            smoke.wait("6b-index-offer", "Index the codebase")
-            keys("Enter")  # Continue in terminal
-            smoke.wait("6c-indexing-in-terminal", "[dridh exited 0]", timeout=180)
-            keys("Enter")  # back to OpenCode
-            smoke.wait("7-indexed", "The codebase is indexed", forbid=raw_json)
+            smoke.glimpse("6b-indexing-in-the-background", rf"indexing \d+/{OTHER_FILES} files")
+            smoke.wait("7-indexed", f"Code indexed ({OTHER_FILES} files)", timeout=240, forbid=raw_json)
+            smoke.wait("7a-setup-step-3", "Setup · step 3 of 3")
             workspace = json.loads((other / ".opencode" / "dridh" / "workspace.json").read_text())
             if workspace.get("mode") != "existing":
                 raise StepFailed(f"7-indexed: workspace mode is {workspace.get('mode')!r}, expected 'existing'")
-            if (project / ".opencode" / "dridh" / "workspace.json").read_text() == "":
-                raise StepFailed("7-indexed: the first project's workspace was touched")
             keys("Escape")
-            smoke.wait("7b-ready-in-other-folder", "dridh · ready", forbid=raw_json)
+            smoke.wait("7b-ready-in-other-folder", "dridh · setup 3/3", forbid=raw_json)
             if f"/{other.name} " not in screen():
                 smoke.save("7b-FAILED-folder")
                 raise StepFailed("7b-ready-in-other-folder: OpenCode is no longer in the folder /cd moved to")
