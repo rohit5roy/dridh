@@ -1,4 +1,4 @@
-"""Workers that need no tools still offer one inert `read` rule and nothing else."""
+"""Workers that need no file access offer only the read-only code search (dridh_code) and one inert `read` rule."""
 
 from __future__ import annotations
 
@@ -15,10 +15,11 @@ def _permissions(name: str) -> list[dict[str, str]]:
     return yaml.safe_load(text.split("---")[1])["permissions"]
 
 
-def test_tool_free_workers_deny_everything_except_a_read_of_a_path_that_does_not_exist() -> None:
+def test_tool_free_workers_deny_everything_except_code_search_and_a_read_of_a_path_that_does_not_exist() -> None:
     for name in NO_TOOL_WORKERS:
         rules = _permissions(name)
         assert rules[0] == {"action": "*", "resource": "*", "effect": "deny"}, name
         allows = [r for r in rules if r["effect"] == "allow"]
-        assert allows == [{"action": "read", "resource": "/dridh-no-access/*", "effect": "allow"}], name
+        assert allows == [{"action": "dridh_code", "resource": "*", "effect": "allow"},
+                          {"action": "read", "resource": "/dridh-no-access/*", "effect": "allow"}], name
         assert not Path("/dridh-no-access").exists()

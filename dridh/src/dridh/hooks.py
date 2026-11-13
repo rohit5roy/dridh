@@ -112,8 +112,14 @@ def dispatch_hook(request: Any) -> dict[str, Any]:
             if digest is not None and (not isinstance(digest, str) or not _SHA.match(digest)):
                 raise DridhError(ErrorCode.VALIDATION_FAILED, "input_sha256 must be a SHA-256 hex digest.")
             duration = payload.get("duration_ms") or 0
-            recorded = _record(request, operation=f"opencode.tool:{tool}", agent=agent, session_id=session_id,
-                               ok=status == "completed", error_code=None if status == "completed" else "TOOL_ERROR",
+            # For Dridh's own tools, the operation the agent asked for (e.g. code_reacher.lookup), so searches can be counted.
+            dridh_operation = payload.get("operation")
+            if dridh_operation is not None and (not isinstance(dridh_operation, str) or not re.fullmatch(r"[a-z_]+(\.[a-z_]+)?", dridh_operation)):
+                raise DridhError(ErrorCode.VALIDATION_FAILED, "operation must be a Dridh operation name.")
+            name = f"opencode.tool:{tool}:{dridh_operation}" if dridh_operation else f"opencode.tool:{tool}"
+            refused = payload.get("refused") is True  # stopped before it ran, e.g. grep before a Code Reacher search
+            recorded = _record(request, operation=name, agent=agent, session_id=session_id,
+                               ok=status == "completed", error_code=None if status == "completed" else "TOOL_REFUSED" if refused else "TOOL_ERROR",
                                payload={"input_keys": sorted(keys), "input_sha256": digest},
                                duration_ms=int(duration) if isinstance(duration, int | float) else 0)
             return {"recorded": recorded}

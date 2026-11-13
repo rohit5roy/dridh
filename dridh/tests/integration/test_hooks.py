@@ -89,3 +89,16 @@ def test_malformed_hook_payloads_are_refused(project: Path, operation: str, payl
 
 def test_context_text_without_a_feature_points_to_feature_creation() -> None:
     assert "coordinator.create_feature" in context_text({"feature": None})
+
+
+def test_a_code_search_records_its_operation_and_a_refused_grep_is_recorded_as_refused(project: Path) -> None:
+    _call(project, "hook.tool_call", {"agent": "dridh/executor", "session_id": "ses_3", "tool": "grep", "status": "error",
+                                      "refused": True, "input_keys": ["pattern"], "input_sha256": "b" * 64})
+    _call(project, "hook.tool_call", {"agent": "dridh/executor", "session_id": "ses_3", "tool": "dridh_code", "status": "completed",
+                                      "operation": "lookup", "input_keys": ["operation", "query"], "input_sha256": "c" * 64})
+    refused, search = _rows(project)[-2:]
+    assert refused["operation"] == "opencode.tool:grep" and refused["error_code"] == "TOOL_REFUSED"
+    assert search["operation"] == "opencode.tool:dridh_code:lookup" and search["status"] == "OK"
+    with pytest.raises(DridhError, match="operation must be a Dridh operation name"):
+        _call(project, "hook.tool_call", {"agent": "dridh/executor", "session_id": "ses_3", "tool": "dridh_code", "status": "completed",
+                                          "operation": "lookup; drop table", "input_keys": [], "input_sha256": "d" * 64})

@@ -5,6 +5,9 @@ permissions:
   - action: "*"
     resource: "*"
     effect: deny
+  - action: dridh_code
+    resource: "*"
+    effect: allow
   # No real access: OpenCode's free models refuse a request that offers no tool at all, so `read` is
   # offered for a path that does not exist. Every real read is denied.
   - action: read
@@ -13,6 +16,9 @@ permissions:
 ---
 
 Role identifier: dridh/workers/designer-handoff
+
+## Finding code
+You can check facts about this project's code yourself with the read-only `dridh_code` tool (`lookup` {query} by what the code does or by name, `symbol` {name} for signature and parameters, `dependencies` {symbol, direction} for callers and callees). Use it instead of guessing when the evidence you were given does not settle a question about existing code. It is your only access to the project.
 
 ## Input contract
 The Coordinator supplies the generated TDD, exact approved Use Case revision/hash, technical inquiry, deterministic validator results, SQLite projection results and review checklist.

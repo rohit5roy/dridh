@@ -37,6 +37,21 @@ function workspaceRoot(ctx: unknown): string {
   return location?.directory ?? process.cwd()
 }
 
+/** Code Reacher's read-only operations, offered to every Dridh agent through the dridh_code tool. */
+export const CODE_SEARCH_OPERATIONS = ["lookup", "symbol", "dependencies", "code_for", "owners", "index_status"] as const
+/** OpenCode's own text-search tools: a Dridh agent uses them only after it has searched with dridh_code. */
+export const TEXT_SEARCH_TOOLS = ["grep", "glob"] as const
+export const SEARCH_FIRST_MESSAGE =
+  "Search with the dridh_code tool first (operation lookup, by meaning or by name; symbol for an exact name). " +
+  "It knows this project's classes, methods and their parameters. Use grep or glob afterwards for exact text, or if dridh_code has no index or no answer."
+
+/** True when a tool call is a Code Reacher search: the dridh_code tool, or a code_reacher.* operation on the bridge. */
+export function isCodeSearch(tool: string, input: unknown): boolean {
+  if (tool === "dridh_code") return true
+  const operation = input && typeof input === "object" ? (input as { operation?: unknown }).operation : undefined
+  return tool === "dridh_bridge" && typeof operation === "string" && operation.startsWith("code_reacher.")
+}
+
 function positiveNumberFromEnvironment(name: string, fallback: number): number {
   const raw = Number(process.env[name] ?? fallback)
   return Number.isFinite(raw) && raw > 0 ? raw : fallback
@@ -119,6 +134,55 @@ export default Plugin.define({
               const payload = error.toJSON()
               const surfaced = new Error(`${error.code}: ${error.message}`) as Error & Record<string, unknown>
               Object.assign(surfaced, payload)
+              throw surfaced
+            }
+            throw error
+          }
+        },
+      })
+
+      editor.add({
+        name: "code",
+        description:
+          "Search this project's code with Code Reacher. Use it FIRST, before grep or glob: it finds code by meaning, not only by exact text. " +
+          "Operations: lookup {query, limit, semantic} finds classes, methods and functions by what they do or by words in their names (start here); " +
+          "symbol {name} returns one class, method or function with its signature, parameters and location; " +
+          "dependencies {symbol, direction: callers|callees|both, depth} returns the call graph around it; " +
+          "code_for {target} returns the code implementing a story, component, use case or flow; owners {path} returns the stories and use cases a file implements; " +
+          "index_status tells whether the code is indexed. Use grep or glob afterwards only for exact text, or when Code Reacher has no index or no answer. " +
+          "Read-only: it never changes the project or the index.",
+        input: {
+          type: "object",
+          properties: {
+            operation: { type: "string", enum: CODE_SEARCH_OPERATIONS, default: "lookup", description: "lookup, symbol, dependencies, code_for, owners or index_status" },
+            query: { type: "string", description: "lookup: what you are looking for, in plain words or identifiers" },
+            limit: { type: "number", description: "lookup: maximum results (default 10)" },
+            semantic: { type: "boolean", description: "lookup: also search by meaning (default true)" },
+            name: { type: "string", description: "symbol: a qualified or simple name" },
+            symbol: { type: "string", description: "dependencies: a qualified name" },
+            direction: { type: "string", enum: ["callers", "callees", "both"], description: "dependencies: which way to follow calls" },
+            depth: { type: "number", description: "dependencies: how many calls away, 1 to 5 (default 2)" },
+            target: { type: "string", description: "code_for: a story, component, use case or flow ID" },
+            path: { type: "string", description: "owners: a file path relative to the project" },
+          },
+          required: [],
+          additionalProperties: false,
+        },
+        options: { namespace: "dridh" },
+        execute: async (input, context: ToolContext) => {
+          const { operation = "lookup", ...payload } = input as { operation?: (typeof CODE_SEARCH_OPERATIONS)[number] } & Record<string, unknown>
+          if (!(CODE_SEARCH_OPERATIONS as readonly string[]).includes(operation)) throw new Error(`Unknown code search operation: ${operation}`)
+          try {
+            const data = await client.call(`code_reacher.${operation}`, payload, {
+              signal: context.signal,
+              timeoutMs: 120_000,
+              caller: { source: "plugin", agent: context.agent, session_id: context.sessionID },
+            })
+            return { content: [{ type: "text", text: JSON.stringify(data) }], metadata: { operation: `code_reacher.${operation}`, protocol_version: 1 } }
+          } catch (error) {
+            if (error instanceof BridgeError) {
+              const surfaced = new Error(`${error.code}: ${error.message}`) as Error & Record<string, unknown>
+              Object.assign(surfaced, error.toJSON())
               throw surfaced
             }
             throw error
@@ -218,6 +282,7 @@ export default Plugin.define({
     }
 
     const started = new Map<string, number>() // tool call ID -> start time
+    const searched = new Set<string>() // sessions that have searched with Code Reacher
     const hooks = [
       await ctx.session.hook("context", async (input) => {
         if (!isDridh(input.agent)) return
@@ -235,10 +300,22 @@ export default Plugin.define({
         if (cached.text) input.system.push({ type: "text", text: cached.text, metadata: { source: "dridh" } })
       }),
       await ctx.tool.hook("execute.before", (input) => {
-        if (isDridh(input.agent)) {
-          markDridh(input.sessionID, input.agent)
-          started.set(input.id, Date.now())
+        if (!isDridh(input.agent)) return
+        markDridh(input.sessionID, input.agent)
+        if (isCodeSearch(input.tool, input.input)) searched.add(input.sessionID)
+        else if ((TEXT_SEARCH_TOOLS as readonly string[]).includes(input.tool) && !searched.has(input.sessionID)) {
+          // Code Reacher first: refused once per session, until the agent has searched with dridh_code (also when the
+          // code is not indexed: that search answers so at once, and grep is allowed from then on). OpenCode runs no
+          // execute.after for a refused call, so the refusal is recorded here.
+          const value = input.input && typeof input.input === "object" ? (input.input as Record<string, unknown>) : {}
+          quietly(client.call("hook.tool_call", {
+            agent: input.agent, session_id: input.sessionID, tool: input.tool, status: "error", refused: true, duration_ms: 0,
+            input_keys: Object.keys(value).slice(0, 50),
+            input_sha256: createHash("sha256").update(JSON.stringify(input.input ?? null)).digest("hex"),
+          }, { caller: hookCaller(input.agent, input.sessionID), timeoutMs: 10_000 }))
+          throw new Error(SEARCH_FIRST_MESSAGE)
         }
+        started.set(input.id, Date.now())
       }),
       await ctx.tool.hook("execute.after", (input) => {
         if (!isDridh(input.agent)) return
@@ -252,6 +329,7 @@ export default Plugin.define({
           status: input.status,
           duration_ms: begin === undefined ? 0 : Date.now() - begin,
           input_keys: Object.keys(value).slice(0, 50),
+          ...(typeof value.operation === "string" && input.tool.startsWith("dridh_") ? { operation: value.operation.slice(0, 80) } : {}),
           input_sha256: createHash("sha256").update(JSON.stringify(input.input ?? null)).digest("hex"),
         }, { caller: hookCaller(input.agent, input.sessionID), timeoutMs: 10_000 }))
       }),

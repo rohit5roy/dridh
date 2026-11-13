@@ -86,3 +86,16 @@ test("before the first feature the TUI shows the setup steps and one next action
   assert.ok(source.includes('agent === "dridh/coordinator" ? "describe a feature to start"'), "inside a Coordinator session it does not ask for Shift+Tab")
   assert.ok(!source.includes("Press Shift+Tab for the Dridh Coordinator and tell it what you want to build"), "the long message is gone")
 })
+
+test("a spinner shows in the status line while Dridh is working, and only then", () => {
+  assert.ok(source.includes('const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]'))
+  assert.match(source, /if \(busy && !spinTimer\) spinTimer = setInterval/, "the timer runs only while busy")
+  assert.match(source, /if \(!busy && spinTimer\) \{ clearInterval\(spinTimer\)/, "and stops when idle")
+  assert.ok(source.includes('ctx.data.on("session.tool.called"') && source.includes('startsWith("dridh_")'), "agents' Dridh tool calls are shown")
+  assert.ok(source.includes('busyWith("setting up"'), "panel actions are shown")
+  assert.ok(source.includes('if (tool === "dridh_code")') && source.includes('"searching code"'), "the label says what Dridh is doing")
+  assert.ok(source.includes("const WorkingLine = () =>") && (source.match(/<WorkingLine \/>/g) ?? []).length === 2,
+    "the panel shows it too, below the setup steps and below the feature overview")
+  assert.ok(source.includes('indexing the code · ${job.phase === "files" ? "reading files" : "embedding"} ${Math.floor((100 * job.done) / job.total)}%'), "indexing shows how far it is")
+  assert.match(source, /if \(spinTimer\) clearInterval\(spinTimer\)\s*\n\s*for \(const stop of stopListening\) stop\(\)/, "unloading stops the timer and the listeners")
+})

@@ -5,6 +5,9 @@ permissions:
   - action: "*"
     resource: "*"
     effect: deny
+  - action: dridh_code
+    resource: "*"
+    effect: allow
   - action: read
     resource: "*"
     effect: allow
@@ -33,3 +36,12 @@ Every story, including an infrastructure story, must set component_id to exactly
 Stories must be independently executable, cohesive and small enough for one Executor. Avoid overlapping file or shared-resource ownership for stories intended to run in parallel. Declare resource_ownership for shared API contracts, schemas/migrations, database tables, common configuration, deployment environments and other shared resources; use an empty array when there are none. Give every dependency a specific rationale and refer only to another story key in this response. Do not create cycles.
 
 Do not guess code locations. For existing repositories, use the supplied Code Reacher index and recommend changes that fit the indexed architecture. For new repositories, return a reasoned expected structure. List material ambiguity in blockers rather than inventing an answer. Do not fabricate requirements, contracts, owners or dates. Return valid JSON only, with no Markdown fences or prose.
+## Finding code
+Use the `dridh_code` tool FIRST whenever you need to find or understand code in this project. It knows every indexed class, method and function with its parameters:
+- `lookup` {query}: find code by what it does or by words in its name. Start here.
+- `symbol` {name}: one class, method or function with its signature, parameters and location.
+- `dependencies` {symbol, direction}: who calls it and what it calls.
+- `code_for` {target} / `owners` {path}: the code behind a story, use case or flow, and the stories behind a file.
+
+Use grep or glob only after that: for exact text, or when `dridh_code` reports no index or gives no useful answer. Your first grep or glob in a session is refused until you have used `dridh_code`.
+

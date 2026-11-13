@@ -207,7 +207,7 @@ export default Plugin.define({
       })
       if (!mode) return
       try {
-        await dridhJson(["init", "--mode", mode], root())
+        await busyWith("setting up", () => dridhJson(["init", "--mode", mode], root()))
         quiet()
         await refresh()
         if (mode === "existing") startIndex()  // in the background: the status line shows the progress
@@ -224,6 +224,69 @@ export default Plugin.define({
     const [indexing, setIndexing] = createSignal<Indexing | undefined>(undefined)
     /** The index job for the folder OpenCode is in now, if one is running. */
     const indexingHere = () => (indexing()?.folder === root() ? indexing() : undefined)
+
+    // ------------------------------------------------------------------ "Dridh is working" (spinner)
+
+    /** What Dridh is doing right now: a panel action, or a Dridh tool an agent called (by tool call ID). */
+    const [panelWork, setPanelWork] = createSignal<string | undefined>(undefined)
+    const [agentWork, setAgentWork] = createSignal<ReadonlyArray<{ id: string; label: string }>>([])
+    const toolNames = new Map<string, string>()
+    /** The label shown beside the spinner; undefined when Dridh is idle. Indexing has its own progress text. */
+    const working = (): string | undefined => panelWork() ?? agentWork().at(-1)?.label ?? (indexingHere() ? "indexing" : undefined)
+    const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+    const [frame, setFrame] = createSignal(0)
+    let spinTimer: ReturnType<typeof setInterval> | undefined
+    createEffect(() => {
+      const busy = working() !== undefined || indexing() !== undefined
+      if (busy && !spinTimer) spinTimer = setInterval(() => setFrame((f) => (f + 1) % SPINNER.length), 100)
+      if (!busy && spinTimer) { clearInterval(spinTimer); spinTimer = undefined }
+    })
+    const spin = () => (working() !== undefined ? `${SPINNER[frame()]} ` : "")
+
+    /** The panel's working line: the spinner and what Dridh is doing, below the list; indexing shows how far it is. */
+    const panelWorkText = (): string | undefined => {
+      const label = panelWork() ?? agentWork().at(-1)?.label
+      if (label) return label
+      const job = indexingHere()
+      if (!job) return undefined
+      return job.total ? `indexing the code · ${job.phase === "files" ? "reading files" : "embedding"} ${Math.floor((100 * job.done) / job.total)}%` : "indexing the code"
+    }
+    const WorkingLine = () => (
+      <Show when={panelWorkText()}><text fg={c.warn}>{`${SPINNER[frame()]} ${panelWorkText()}…`}</text></Show>
+    )
+
+    /** Runs a panel action with the spinner and LABEL showing until it settles. */
+    async function busyWith<T>(label: string, work: () => Promise<T>): Promise<T> {
+      setPanelWork(label)
+      try { return await work() } finally { setPanelWork(undefined) }
+    }
+
+    /** A short label for a Dridh tool call, from the tool and its operation. */
+    function workLabel(tool: string, operation: unknown): string {
+      const op = typeof operation === "string" ? operation : ""
+      if (tool === "dridh_code") return ({ symbol: "looking up a symbol", dependencies: "following calls", code_for: "mapping code", owners: "mapping code", index_status: "checking the index" } as Record<string, string>)[op] ?? "searching code"
+      if (tool === "dridh_jev_decide") return "asking Jev"
+      if (op === "code_reacher.index") return "indexing"
+      if (op.startsWith("code_reacher.")) return "searching code"
+      if (op === "ideator.generate") return "writing use cases"
+      if (op === "designer.generate") return "writing the technical design"
+      if (op === "planner.generate") return "writing the plan"
+      if (op.startsWith("ideator.")) return "use cases"
+      if (op.startsWith("designer.")) return "technical design"
+      if (op.startsWith("planner.")) return "planning"
+      if (op.startsWith("coordinator.")) return "updating the feature"
+      return "working"
+    }
+    const forget = (id: string) => { toolNames.delete(id); setAgentWork((list) => list.filter((w) => w.id !== id)) }
+    const stopListening = [
+      ctx.data.on("session.tool.input.started", (event: Json) => { if (String(event?.data?.name ?? "").startsWith("dridh_")) toolNames.set(event.data.id, event.data.name) }),
+      ctx.data.on("session.tool.called", (event: Json) => {
+        const tool = toolNames.get(event?.data?.id)
+        if (tool) setAgentWork((list) => [...list.filter((w) => w.id !== event.data.id), { id: event.data.id, label: workLabel(tool, event.data.input?.operation) }])
+      }),
+      ctx.data.on("session.tool.success", (event: Json) => forget(event?.data?.id)),
+      ctx.data.on("session.tool.failed", (event: Json) => forget(event?.data?.id)),
+    ]
 
     /** Runs `dridh index` beside OpenCode; its progress (JSON lines on stderr) feeds the status line and the overview. */
     function startIndex(): void {
@@ -357,7 +420,7 @@ export default Plugin.define({
       if (a.kind === "advance") {
         quiet()
         try {
-          await dridhJson(["feature", "sync", feature().slug], root())
+          await busyWith("syncing the feature", () => dridhJson(["feature", "sync", feature().slug], root()))
           await refresh()
           return ctx.ui.toast.show({ title: "Dridh", message: `${feature().name} is now in ${feature().stage_label}.`, variant: "success" })
         } catch (e) { return ctx.ui.toast.show({ message: (e as Error).message, variant: "error" }) }
@@ -450,6 +513,7 @@ export default Plugin.define({
               }}
             </For>
           </box>
+          <WorkingLine />
           <Show when={!indexingHere()}>
             <text fg={c.accent}>{state()?.human_action?.kind === "index" ? "Next: /dridh-index to index the code." : `Next: ${START_FEATURE}`}</text>
           </Show>
@@ -521,6 +585,7 @@ export default Plugin.define({
                   <text fg={c.muted}>n do it now · c checklist · a approve · l latest lot</text>
                 </Show>
               </box>
+              <WorkingLine />
             </box>
           </box>
         </Show>
@@ -535,7 +600,7 @@ export default Plugin.define({
       const [busyItem, setBusyItem] = createSignal<string>()
       const openIfNeeded = async () => {
         if (doc() && !doc().review && key() === "plan") {
-          try { quiet(); await dridhJson(["planner", "review", doc().session_id], root()); await refresh() } catch (e) { ctx.ui.toast.show({ message: (e as Error).message, variant: "error" }) }
+          try { quiet(); await busyWith("opening the review", () => dridhJson(["planner", "review", doc().session_id], root())); await refresh() } catch (e) { ctx.ui.toast.show({ message: (e as Error).message, variant: "error" }) }
         }
       }
       void openIfNeeded()
@@ -545,7 +610,7 @@ export default Plugin.define({
         setBusyItem(it.item)
         try {
           quiet()
-          await dridhJson(["reviews", "checklist", doc().review.id, it.item, it.checked ? "--unchecked" : "--checked"], root())
+          await busyWith("updating the checklist", () => dridhJson(["reviews", "checklist", doc().review.id, it.item, it.checked ? "--unchecked" : "--checked"], root()))
           await refresh()
         } catch (e) { ctx.ui.toast.show({ message: (e as Error).message, variant: "error" }) } finally { setBusyItem(undefined) }
       }
@@ -831,8 +896,9 @@ export default Plugin.define({
       if (job) {
         const what = job.phase === "files" ? "indexing" : "embedding"
         const count = job.total ? ` ${job.done}/${job.total}` : ""
-        return `dridh · ${step} · ${what}${count}${job.phase === "files" && job.total ? " files" : ""}`
+        return `${spin()}dridh · ${step} · ${what}${count}${job.phase === "files" && job.total ? " files" : ""}`
       }
+      if (working()) return `${spin()}dridh · ${step} · ${working()}`
       if (state()?.human_action?.kind === "index") return `dridh · ${step} · /dridh-index to index the code`
       const agent = sessionID ? (ctx.data.session.get(sessionID) as { agent?: string } | undefined)?.agent : undefined
       return `dridh · ${step} · ${agent === "dridh/coordinator" ? "describe a feature to start" : "Shift+Tab: Dridh/Coordinator, describe a feature"}`
@@ -840,12 +906,13 @@ export default Plugin.define({
     const statusLine = (short = false, sessionID?: string) => (
       <Show when={feature()} fallback={
         <Show when={!error()} fallback={<text fg={c.bad}>dridh · {error()!.slice(0, 72)}</text>}>
-          <Show when={unset()} fallback={<Show when={state()}><text fg={c.muted}>{setupLine(sessionID)}</text></Show>}>
-            <text fg={c.muted}>{short ? "dridh · not set up" : "dridh · type /dridh to set up"}</text>
+          <Show when={unset()} fallback={<Show when={state()} fallback={<Show when={working()}><text fg={c.muted}>{spin()}dridh · {working()}</text></Show>}><text fg={c.muted}>{setupLine(sessionID)}</text></Show>}>
+            <text fg={c.muted}>{working() ? `${spin()}dridh · ${working()}` : short ? "dridh · not set up" : "dridh · type /dridh to set up"}</text>
           </Show>
         </Show>}>
-        <text fg={c.accent}>dridh <span style={{ fg: c.muted }}>·</span> {feature().slug} <span style={{ fg: c.muted }}>·</span> {feature().stage_label}
-          <Show when={action() && action().kind !== "wait"}><span style={{ fg: c.warn }}>{short ? " · ⚑ needs you" : ` · ⚑ ${action().text}`}</span></Show>
+        <text fg={c.accent}>{spin()}dridh <span style={{ fg: c.muted }}>·</span> {feature().slug} <span style={{ fg: c.muted }}>·</span> {feature().stage_label}
+          <Show when={working()}><span style={{ fg: c.muted }}>{` · ${working()}`}</span></Show>
+          <Show when={!working() && action() && action().kind !== "wait"}><span style={{ fg: c.warn }}>{short ? " · ⚑ needs you" : ` · ⚑ ${action().text}`}</span></Show>
         </text>
       </Show>
     )
@@ -965,6 +1032,10 @@ export default Plugin.define({
       ],
     } }
 
-    return () => clearInterval(timer)
+    return () => {
+      clearInterval(timer)
+      if (spinTimer) clearInterval(spinTimer)
+      for (const stop of stopListening) stop()
+    }
   },
 })
