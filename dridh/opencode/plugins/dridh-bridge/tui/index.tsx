@@ -176,6 +176,14 @@ export default Plugin.define({
           reindexed.add(folder)
           ctx.ui.toast.show({ title: "Dridh", message: "Code search was improved. Re-indexing the code in the background.", variant: "info", duration: 6000 })
           startIndex("upgrade")
+        } else if (next?.code_index?.code_changed) {
+          // Code changed outside Dridh (an editor, git pull, another tool). Once the files hold still for one refresh
+          // (5 s), update the index in the background; only changed files are re-read. A fingerprint whose update
+          // failed is not retried until the files change again.
+          const fingerprint = String(next.code_index.fingerprint ?? "")
+          const seen = changeSeen.get(folder)
+          changeSeen.set(folder, fingerprint)
+          if (seen === fingerprint && !indexing() && failedFingerprint.get(folder) !== fingerprint) startIndex("changes", fingerprint)
         }
       } catch (e) {
         if (folder !== root()) return
@@ -230,6 +238,9 @@ export default Plugin.define({
     type Indexing = { folder: string; phase: "files" | "embeddings"; done: number; total: number }
     /** Folders re-indexed this session because their vectors were stale (never retried in a loop). */
     const reindexed = new Set<string>()
+    /** The change fingerprint seen at the previous refresh (re-index once it holds still), and one whose update failed. */
+    const changeSeen = new Map<string, string>()
+    const failedFingerprint = new Map<string, string>()
     const [indexing, setIndexing] = createSignal<Indexing | undefined>(undefined)
     /** The index job for the folder OpenCode is in now, if one is running. */
     const indexingHere = () => (indexing()?.folder === root() ? indexing() : undefined)
@@ -298,11 +309,12 @@ export default Plugin.define({
     ]
 
     /** Runs `dridh index` beside OpenCode; its progress (JSON lines on stderr) feeds the status line and the overview. */
-    function startIndex(why: "setup" | "upgrade" = "setup"): void {
+    function startIndex(why: "setup" | "upgrade" | "changes" = "setup", fingerprint = ""): void {
       const folder = root()
       if (indexing()) return ctx.ui.toast.show({ message: "The code is already being indexed.", variant: "info" })
       setIndexing({ folder, phase: "files", done: 0, total: 0 })
-      const child = spawn(bin(), ["index", "--progress", "--json", "--project", folder], { cwd: folder, env: { ...process.env, DRIDH_OUTPUT: "json" } })
+      const args = ["index", "--progress", "--json", "--project", folder, ...(why === "changes" ? ["--if-changed"] : [])]
+      const child = spawn(bin(), args, { cwd: folder, env: { ...process.env, DRIDH_OUTPUT: "json" } })
       let stdout = ""
       let stderr = ""
       let partial = ""
@@ -331,12 +343,14 @@ export default Plugin.define({
         void refresh()
         try {
           const result = readCliResult(stdout, stderr + partial, code !== 0) as { files_seen?: number }
+          if (why === "changes") return  // a routine update after outside edits: the spinner was enough
           const files = Number(result?.files_seen ?? 0)
           const counted = `${files} file${files === 1 ? "" : "s"}`
           const message = why === "upgrade" ? `Code search is up to date (${counted} re-indexed).` : `Code indexed (${counted}). ${START_FEATURE}`
           ctx.ui.toast.show({ title: "Dridh", message, variant: "success", duration: 8000 })
           void ctx.attention.notify({ title: "Dridh", message, notification: { when: "blurred" }, sound: { name: "done", when: "blurred" } })
         } catch (e) {
+          if (why === "changes") failedFingerprint.set(folder, fingerprint)  // not retried until the files change again
           ctx.ui.toast.show({ title: "Indexing failed", message: (e as Error).message, variant: "error" })
         }
       })

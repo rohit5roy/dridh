@@ -41,6 +41,16 @@ def _search(info) -> CodeSearch:
     return CodeSearch(info, provider=HashingEmbedder())
 
 
+def _cli(*args: str, env: dict[str, str] | None = None) -> dict:
+    """`dridh <args> --json` in a subprocess, as the OpenCode panel runs it."""
+    import json
+
+    completed = subprocess.run([sys.executable, "-m", "dridh", *args, "--json"], capture_output=True, text=True, timeout=60,  # noqa: S603
+                               env={**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[2] / "src"), **(env or {})}, check=False)
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    return json.loads(completed.stdout)
+
+
 def _rows(info, sql: str, *params):
     connection = sqlite3.connect(info.state_db)
     connection.row_factory = sqlite3.Row
@@ -184,11 +194,61 @@ def test_vectors_from_an_older_model_or_text_are_reported_stale_and_rebuilt_by_t
     assert answer["results"]  # full-text search still answers
     from dridh.ui.state import workspace_state
 
-    assert workspace_state(info)["code_index"] == {"vectors_stale": True}
+    assert workspace_state(info)["code_index"]["vectors_stale"] is True
     again = _index(info)
     assert again["unchanged"] is True and again["embeddings"]["written"] == len(_rows(info, "SELECT id FROM code_entity WHERE entity_type!='module'"))
-    assert _search(info).status()["vectors_stale"] is False and workspace_state(info)["code_index"] == {"vectors_stale": False}
+    assert _search(info).status()["vectors_stale"] is False and workspace_state(info)["code_index"]["vectors_stale"] is False
     assert _search(info).lookup("price with tax")["vector"]["used"] is True
+
+
+def test_changes_made_outside_dridh_are_detected_and_the_next_update_indexes_only_them(repo):
+    """A person edits, adds or deletes a file (or pulls): the index reports the change, a lookup warns that results may be
+    out of date, and `dridh index --if-changed` updates the index; with nothing changed it does nothing."""
+    project, info = repo
+    from dridh.code_reacher.indexer import index_freshness
+    from dridh.ui.state import workspace_state
+
+    assert index_freshness(info) == {"indexed": False, "changed": False}  # nothing indexed: nothing to keep current
+    _index(info)
+    fresh = index_freshness(info)
+    assert fresh["changed"] is False and fresh["folder"] == str(project.resolve())
+    assert "code_changed" not in _search(info).lookup("price with tax")["index"]
+
+    (project / "py/app/refunds.py").write_text("def refund_order(order_id: int) -> bool:\n    return True\n")
+    changed = index_freshness(info)
+    assert changed["changed"] is True and changed["fingerprint"] != fresh["fingerprint"]
+    assert workspace_state(info)["code_index"]["code_changed"] is True and _search(info).status()["code_changed"] is True
+    answer = _search(info).lookup("refund an order")
+    assert answer["index"]["code_changed"] is True and "Files changed since the code was indexed" in answer["index"]["note"]
+
+    updated = _cli("index", "--if-changed", "--project", str(project), env={"DRIDH_EMBEDDINGS": "hash"})
+    assert updated["files_parsed"] == 1 and updated["files_reused"] == 11  # only the new file was parsed
+    assert index_freshness(info)["changed"] is False and _search(info).symbol("app.refunds.refund_order")["unique"]
+    assert _cli("index", "--if-changed", "--project", str(project), env={"DRIDH_EMBEDDINGS": "hash"})["skipped"] is True
+
+    (project / "py/app/refunds.py").unlink()
+    assert index_freshness(info)["changed"] is True
+    _cli("index", "--if-changed", "--project", str(project), env={"DRIDH_EMBEDDINGS": "hash"})
+    assert not _search(info).symbol("app.refunds.refund_order")["matches"]
+
+
+def test_the_index_keeps_following_the_folder_it_was_built_from(repo, tmp_path):
+    """During delivery the index follows a feature's integration worktree. A change in the person's checkout must not
+    swap it back; a change in that worktree is picked up there."""
+    project, info = repo
+    from dridh.code_reacher.indexer import index_freshness
+
+    worktree = tmp_path / "integration"
+    shutil.copytree(project, worktree, ignore=shutil.ignore_patterns(".opencode"))
+    CodeIndexer(info, provider=HashingEmbedder()).index(root=worktree)
+    (project / "py/app/elsewhere.py").write_text("def only_in_the_checkout():\n    return 1\n")
+    assert index_freshness(info)["changed"] is False and index_freshness(info)["folder"] == str(worktree.resolve())
+    (worktree / "py/app/merged.py").write_text("def merged_by_delivery():\n    return 1\n")
+    assert index_freshness(info)["changed"] is True
+    _cli("index", "--if-changed", "--project", str(project), env={"DRIDH_EMBEDDINGS": "hash"})
+    assert _search(info).symbol("app.merged.merged_by_delivery")["unique"] and not _search(info).symbol("app.elsewhere.only_in_the_checkout")["matches"]
+    shutil.rmtree(worktree)  # the worktree is removed after delivery: the project is what is left
+    assert index_freshness(info)["folder"] == str(project.resolve()) and index_freshness(info)["changed"] is True
 
 
 def test_the_embedded_text_carries_the_doc_comment_and_the_start_of_the_code(repo):

@@ -498,10 +498,11 @@ def index_command(
     status: bool = typer.Option(False, "--status", help="Show the current index instead of updating it."),
     no_embed: bool = typer.Option(False, "--no-embed", help="Skip semantic embeddings (full-text and call graph only)."),
     progress: bool = typer.Option(False, "--progress", help="Report progress on stderr as JSON lines (for the OpenCode TUI)."),
+    if_changed: bool = typer.Option(False, "--if-changed", help="Only when files changed since the last index; updates the folder that index was built from."),
 ) -> None:
     """Build or incrementally update the Code Reacher index of this project (only changed files are re-parsed)."""
 
-    from dridh.code_reacher.indexer import CodeIndexer
+    from dridh.code_reacher.indexer import CodeIndexer, index_freshness
     from dridh.code_reacher.search import CodeSearch
 
     from dridh.code_reacher.mapping import refresh_mapping
@@ -510,7 +511,15 @@ def index_command(
     if status:
         _emit(CodeSearch(workspace).status())
         return
-    result = CodeIndexer(workspace).index(embed=not no_embed, progress=_progress_reporter() if progress else None)
+    root = None
+    if if_changed:
+        freshness = index_freshness(workspace)
+        if not freshness["changed"]:
+            _emit({"skipped": True, "reason": "no files changed since the last index" if freshness["indexed"] else "nothing is indexed yet",
+                   "files_seen": 0, "files_parsed": 0})
+            return
+        root = Path(freshness["folder"])
+    result = CodeIndexer(workspace).index(embed=not no_embed, root=root, progress=_progress_reporter() if progress else None)
     result["story_mapping"] = refresh_mapping(workspace)
     _emit(result)
 

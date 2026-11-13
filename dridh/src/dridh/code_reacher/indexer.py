@@ -15,12 +15,13 @@ import hashlib
 import posixpath
 import re
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
 from dridh.code_reacher import extract_java, extract_python, extract_typescript
-from dridh.code_reacher.discovery import SourceFile, discover, snapshot_id
+from dridh.code_reacher.discovery import SourceFile, change_fingerprint, discover, snapshot_id
 from dridh.code_reacher.embeddings import EmbeddingProvider, VectorStore, default_provider, describe, split_identifier, vector_key
 from dridh.code_reacher.model import Entity, ParsedFile
 from dridh.common.errors import DridhError, ErrorCode
@@ -31,6 +32,45 @@ EMBED_CHUNK = 512
 PROGRESS_STEP = 64  # embeddings between progress reports
 
 Progress = Callable[[str, int, int], None]
+# The folder the current index was built from (the project, or a feature's integration worktree during delivery) and
+# the change fingerprint of that folder when it was indexed.
+ROOT_KEY, FINGERPRINT_KEY = "code_index_root", "code_index_fingerprint"
+
+
+@contextmanager
+def _index_lock(workspace: WorkspaceInfo) -> Iterator[None]:
+    """Serialises index runs across processes (the OpenCode panel, the Coordinator's bridge, delivery): a second run
+    waits, then usually finds nothing left to do."""
+    try:
+        import fcntl
+    except ImportError:  # Windows: SQLite's own locking still keeps each transaction consistent
+        yield
+        return
+    path = workspace.state_db.parent / "code-index.lock"
+    with open(path, "a+b") as handle:
+        fcntl.flock(handle, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(handle, fcntl.LOCK_UN)
+
+
+def index_freshness(workspace: WorkspaceInfo) -> dict[str, Any]:
+    """Whether code changed since it was indexed, by anyone (a person, an editor, ``git pull``, another tool). Dridh's own
+    delivery indexes what it merges, so its changes are already in the index and never show up here.
+
+    The folder checked is the one the index was built from, so a feature's integration worktree is not swapped for the
+    person's checkout in the middle of delivery. ``fingerprint`` lets a caller wait until the files stop changing."""
+    with StateStore(workspace.state_db, workspace.workspace_id) as store:
+        connection = store.read()
+        if _current_run(connection, workspace.workspace_id, ".") is None:
+            return {"indexed": False, "changed": False}
+        meta = {row[0]: row[1] for row in connection.execute("SELECT key, value FROM meta WHERE key IN (?, ?)", (ROOT_KEY, FINGERPRINT_KEY))}
+    folder = Path(meta.get(ROOT_KEY) or workspace.project_root)
+    if not folder.is_dir():  # a removed integration worktree: the project is what is left
+        folder = workspace.project_root
+    fingerprint = change_fingerprint(folder)
+    return {"indexed": True, "changed": fingerprint != meta.get(FINGERPRINT_KEY), "folder": str(folder), "fingerprint": fingerprint}
 
 
 BODY_CHARS = 600  # of an entity's code, after its first line, in the embedded text
@@ -109,10 +149,18 @@ class CodeIndexer:
         ``progress(phase, done, total)`` is called as work advances: ``files`` while files are parsed, ``embeddings``
         while vectors are written. It must not raise; it is for display only."""
         self._progress = progress or (lambda phase, done, total: None)
-        result = self._index(embed=embed, root=root)
-        if result["unchanged"] and embed:
-            # Embedding is incremental: an unchanged snapshot still gets the vectors an interrupted run never wrote.
-            result["embeddings"] = {**self._embed(result["run_id"], result["source_sha"]), "snapshot_unchanged": True}
+        folder = (root or self.workspace.project_root).resolve()
+        with _index_lock(self.workspace):  # one index run at a time per workspace (the panel, the Coordinator, delivery)
+            # Taken before reading any file: a file saved while this run reads the tree changes the fingerprint again,
+            # so the change is picked up by the next check instead of being lost.
+            fingerprint = change_fingerprint(folder)
+            result = self._index(embed=embed, root=folder)
+            if result["unchanged"] and embed:
+                # Embedding is incremental: an unchanged snapshot still gets the vectors an interrupted run never wrote.
+                result["embeddings"] = {**self._embed(result["run_id"], result["source_sha"]), "snapshot_unchanged": True}
+            with StateStore(self.workspace.state_db, self.workspace.workspace_id) as store, store.transaction() as connection:
+                for key, value in ((ROOT_KEY, str(folder)), (FINGERPRINT_KEY, fingerprint)):
+                    connection.execute("INSERT INTO meta(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key, value))
         return result
 
     def _index(self, *, embed: bool, root: Path | None) -> dict[str, Any]:

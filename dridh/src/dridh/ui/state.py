@@ -169,7 +169,7 @@ def _setup(info: WorkspaceInfo) -> dict[str, Any]:
     if info.mode == "existing":
         from dridh.code_reacher.search import CodeSearch
 
-        status = CodeSearch(info).status()
+        status = CodeSearch(info).status(check_changes=False)  # the change check runs once, in _code_index
         index = {"indexed": bool(status.get("indexed")), "files": (status.get("files") or {}).get("total", 0)}
         count = index["files"]
         label = f"Index the code ({count} file{'' if count == 1 else 's'})" if index["indexed"] else "Index the code"
@@ -181,15 +181,23 @@ def _setup(info: WorkspaceInfo) -> dict[str, Any]:
     return {"step": current + 1, "total": len(steps), "steps": steps, "index": index}
 
 
-def _vectors_stale(info: WorkspaceInfo) -> bool:
-    """True when the code index's vectors were made by another search model or text format (after an upgrade), so the
-    panel re-indexes in the background. Two indexed lookups; never loads the model."""
+def _code_index(info: WorkspaceInfo) -> dict[str, Any]:
+    """What the panel needs to keep the code index current on its own:
+
+    * ``vectors_stale``: the vectors were made by another search model or text format (after an upgrade);
+    * ``code_changed``: files changed since they were indexed, by anyone but Dridh's own delivery (which indexes what it
+      merges); ``fingerprint`` changes with every save, so the panel waits until it holds still before re-indexing.
+
+    Never loads the model or reads a source file: a couple of indexed lookups and a ``stat`` walk."""
     from dridh.code_reacher.embeddings import vector_freshness
+    from dridh.code_reacher.indexer import index_freshness
 
     if not info.state_db.exists():
-        return False
+        return {"vectors_stale": False, "code_changed": False, "fingerprint": None}
     with StateStore(info.state_db, info.workspace_id) as store:
-        return bool(vector_freshness(store.read(), info.workspace_id)["stale"])
+        stale = bool(vector_freshness(store.read(), info.workspace_id)["stale"])
+    freshness = index_freshness(info)
+    return {"vectors_stale": stale, "code_changed": freshness["changed"], "fingerprint": freshness.get("fingerprint")}
 
 
 def workspace_state(info: WorkspaceInfo, feature_ref: str | None = None) -> dict[str, Any]:
@@ -203,7 +211,7 @@ def workspace_state(info: WorkspaceInfo, feature_ref: str | None = None) -> dict
         action = ({"kind": "index", "text": "Index the code: /dridh-index."} if current and current["id"] == "index"
                   else {"kind": "create", "text": "Select Dridh/Coordinator (Shift+Tab) and describe a feature."})
         return {"workspace": str(info.project_root), "mode": info.mode, "feature": None, "features": [],
-                "setup": setup, "human_action": action, "code_index": {"vectors_stale": _vectors_stale(info)}}
+                "setup": setup, "human_action": action, "code_index": _code_index(info)}
     active = [f for f in features if f["stage"] != "COMPLETED"]
     chosen = next((f for f in features if f["slug"] == feature_ref), None) if feature_ref else (active or features)[-1]
     if chosen is None:
@@ -224,7 +232,7 @@ def workspace_state(info: WorkspaceInfo, feature_ref: str | None = None) -> dict
         "features": [{"slug": f["slug"], "stage": f["stage"]} for f in features],
         "timeline": timeline, "documents": stages, "runs": runs,
         "human_action": _human_action(feature, stages, runs),
-        "code_index": {"vectors_stale": _vectors_stale(info)},
+        "code_index": _code_index(info),
     }
 
 

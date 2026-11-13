@@ -11,7 +11,8 @@ The scenario is a person's first run in a project:
   6. /dridh there, "Existing codebase": indexing starts in the background, its progress in the status line
      behind the working spinner, and the spinner below the setup steps in the panel
   7. "Code indexed (N files)": the setup moves to step 3 of 3, OpenCode stays in that folder; then, as after an upgrade
-     that changes the search model, the stored vectors are made stale and the panel re-indexes on its own
+     that changes the search model, the stored vectors are made stale and the panel re-indexes on its own; then a file
+     is added and another deleted outside Dridh, and the panel updates the index on its own
   8. a real Dridh error (the state database is corrupted): its message, never raw JSON
 
 Dridh is installed into a throwaway HOME with `dridh install`, and OpenCode is started with a PATH that does NOT
@@ -308,6 +309,27 @@ def main() -> int:
                 stored = {row[0] for row in connection.execute("SELECT DISTINCT model FROM code_embedding")}
             if not stored or any(model.startswith("BAAI/") for model in stored):
                 raise StepFailed(f"7e-re-indexed: the vectors were not rebuilt ({sorted(stored)})")
+
+            # Code changed outside Dridh (an editor, git pull): once the files hold still, the panel updates the index
+            # in the background, without being asked and without a toast.
+            (other / "added_outside.py").write_text("def refund_order(order_id):\n    return order_id\n")
+            (other / "app.py").unlink()
+            deadline = time.monotonic() + 90
+            while True:
+                with closing(sqlite3.connect(database)) as connection:
+                    names = {row[0] for row in connection.execute(
+                        "SELECT e.name FROM code_entity e JOIN code_file f ON f.id=e.file_id WHERE f.index_run_id=("
+                        "SELECT id FROM code_index_run WHERE status='SUCCEEDED' ORDER BY started_at DESC, rowid DESC LIMIT 1)")}
+                # ... and the background run has finished (no spinner), so step 8 never corrupts the database under it
+                if "refund_order" in names and "greet" not in names and not re.search(r"[\u2800-\u28ff] .*indexing", screen()):
+                    smoke.save("7f-outside-change-indexed")
+                    smoke.steps.append({"step": "7f-outside-change-indexed", "saw": "refund_order indexed, greet removed"})
+                    print("ok  7f-outside-change-indexed: the new file is indexed and the deleted one is gone", flush=True)
+                    break
+                if time.monotonic() > deadline:
+                    smoke.save("7f-outside-change-indexed-FAILED")
+                    raise StepFailed("7f-outside-change-indexed: the change made outside Dridh was not indexed within 90 s")
+                time.sleep(1)
 
             for suffix in ("-wal", "-shm"):
                 Path(f"{database}{suffix}").unlink(missing_ok=True)
