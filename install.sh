@@ -22,9 +22,10 @@
 #   --model ARCHIVE     the embedding model from this dridh-embedding-model.tar.gz (its .sha256 beside it) instead
 #                       of the release's copy; for offline installs
 #
-# The embedding model (about 61 MB) comes from the same release as Dridh, checksum-verified, and is unpacked into
-# ~/.cache/dridh/fastembed (FASTEMBED_CACHE_PATH or XDG_CACHE_HOME change that), so Code Reacher needs no Hugging Face
-# access. A release without it, or an install from a checkout or a wheel, leaves FastEmbed to download it on first use.
+# The embedding model (about 78 MB to download, 130 MB unpacked) comes from the same release as Dridh,
+# checksum-verified, and is unpacked into ~/.cache/dridh/fastembed (FASTEMBED_CACHE_PATH or XDG_CACHE_HOME change
+# that), so Code Reacher needs no Hugging Face access. A release without it, or an install from a checkout or a wheel,
+# leaves Dridh to download it on first use.
 #   --no-glow           do not install glow (the TUI reviewer then shows raw Markdown)
 #   --config-dir DIR    OpenCode configuration directory (default: OPENCODE_CONFIG_DIR or ~/.config/opencode)
 #   --no-configure      install the dridh command only; do not run `dridh install`
@@ -156,7 +157,7 @@ elif [ -n "$model_archive" ]; then
   [ -f "$model_archive" ] && [ -f "$model_archive.sha256" ] || die "--model needs $model_archive and $model_archive.sha256"
   row model install "from $model_archive into $(model_cache_dir)"
 elif [ "$source_kind" = release ]; then row model install "from the release ($MODEL_ARCHIVE, checksum-verified) into $(model_cache_dir)"
-else row model later "FastEmbed downloads it on first use (only releases ship it; or use --model)"; fi
+else row model later "Dridh downloads it on first use (only releases ship it; or use --model)"; fi
 
 if [ "$want_glow" -eq 0 ]; then row glow skip "--no-glow: the TUI reviewer shows raw Markdown"
 elif have glow; then row glow ok "$(glow --version 2>/dev/null | head -1)"
@@ -339,7 +340,7 @@ if [ "$want_embeddings" -eq 1 ]; then
   elif [ "$source_kind" = release ]; then
     model_dir="$work/model"; mkdir -p "$model_dir"
     if ! release_fetch "$source_value" "$model_dir" "$MODEL_ARCHIVE.sha256"; then
-      say "note: release $source_value has no $MODEL_ARCHIVE; FastEmbed downloads the model on first use"; model_dir=""
+      say "note: release $source_value has no $MODEL_ARCHIVE; Dridh downloads the model on first use"; model_dir=""
     fi
   fi
   if [ -n "$model_dir" ]; then
@@ -349,7 +350,7 @@ if [ "$want_embeddings" -eq 1 ]; then
       say "unpacking the embedding model into $cache"
       unpack_model "$model_dir" "$cache"
     else
-      say "note: could not download $MODEL_ARCHIVE; FastEmbed downloads the model on first use"
+      say "note: could not download $MODEL_ARCHIVE; Dridh downloads the model on first use"
     fi
   fi
 fi
