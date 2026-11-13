@@ -456,6 +456,16 @@ export default Plugin.define({
         return onTerminal(`Start execution · ${feature()?.slug}`, ["Executor agents edit only story worktrees; nothing is pushed.", "The run stops at each checkpoint lot for your verdict."],
           ["execute", "start", feature().slug, "--confirmed-by", name])
       }
+      if (a.kind === "deviations") {
+        // A deviation from the approved use cases is approved or rejected by a person, on the real terminal.
+        const name = await reviewer()
+        if (!name) return
+        const id = a.ledger_ids[0]
+        return onTerminal(`Approve deviation ${id} · ${feature()?.slug}`,
+          [a.text, "Type the confirmation to approve. To reject instead: dridh ledger reject " + id + " --reviewer <name> --reason \"...\""],
+          ["ledger", "approve", id, "--reviewer", name])
+      }
+      if (a.kind === "delivery_blocked") return ctx.ui.toast.show({ title: "Dridh", message: a.text, variant: "warning", duration: 10000 })
       if (a.kind === "complete") {
         const name = await reviewer()
         if (!name) return

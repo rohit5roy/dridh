@@ -11,8 +11,10 @@ from typing import Any, Protocol
 
 from dridh.common.errors import DridhError
 from dridh.config.dridh_yaml import ExecutionConfig
+from dridh.executor.flow_coverage import check_report, prove, unproven_claims
 from dridh.executor.policy import detect_test_command, new_mocks, run_test_command, skipped_tests
 from dridh.integrations.opencode import AgentRunError
+from dridh.orchestration.plan import extract_json_object
 from dridh.orchestration.roster import parse_worker_result, paths_within
 from dridh.state.execution import ExecutionRepository
 from dridh.state.runs import RunRepository
@@ -45,6 +47,23 @@ class StoryOutcome:
     summary: str = ""
 
 
+def flow_rules(flows: list[dict[str, Any]]) -> str:
+    """The story's approved flows and how to report and test them (empty for a story that owns no flow)."""
+    if not flows:
+        return ""
+    listed = "\n".join(f"- {f['id']} ({f['type'].lower()}): {f['text']}" for f in flows)
+    example = flows[0]["id"]
+    tag = example.lower().replace("-", "_").replace(".", "_")
+    return (
+        f"\nApproved flows this story implements:\n{listed}\n"
+        "Every flow you implement needs at least one test whose name contains its ID, for example "
+        f"test_{tag}_<what_it_checks>, @DisplayName(\"{example} ...\") or it(\"[{example}] ...\"). Dridh runs the tests and "
+        "checks that each named test passed; a flow you report IMPLEMENTED without such a passing test fails the story.\n"
+        "Report every flow in \"flows\": IMPLEMENTED (built as written), CHANGED (built differently: say how in \"note\") or "
+        "NOT_DONE (not built: say why in \"note\"). CHANGED and NOT_DONE become ledger entries a human must approve.\n"
+    )
+
+
 def implementation_prompt(story: dict[str, Any], allowed: list[str], feedback: list[str]) -> str:
     def bullets(items: list[str]) -> str:
         return "\n".join(f"- {item}" for item in items) or "- (none)"
@@ -57,9 +76,12 @@ def implementation_prompt(story: dict[str, Any], allowed: list[str], feedback: l
         f"You may create or change files only under: {', '.join(allowed)}.\n"
         "Write tests that exercise real dependencies. Do not introduce mocks, stubs or fakes of the system under test or its "
         "dependencies; any new mock fails the story. You cannot run commands: Dridh runs the project's tests after you finish.\n"
-        "Reply with exactly one JSON object and nothing else:\n"
-        '{"status": "DONE" or "BLOCKED", "summary": "one sentence", "files_changed": ["relative/path"]}\n'
-        "Report BLOCKED with a reason if you cannot complete the story."
+        + flow_rules(story.get("flows") or [])
+        + "Reply with exactly one JSON object and nothing else:\n"
+        + ('{"status": "DONE" or "BLOCKED", "summary": "one sentence", "files_changed": ["relative/path"]'
+           + (', "flows": [{"id": "<flow ID>", "status": "IMPLEMENTED" or "CHANGED" or "NOT_DONE", "note": "..."}]' if story.get("flows") else "")
+           + "}\n")
+        + "Report BLOCKED with a reason if you cannot complete the story."
     )
     if story.get("ci_findings"):
         text += ("\nThis story's pull request failed its required checks on GitHub. Fix only what these failures require, "
@@ -91,6 +113,7 @@ class StoryRunner:
             self._finish(attempt, "FAILED", None, {"worktree_error": reason})  # a blocked story must always say why
             return StoryOutcome(story_id, False, None, branch, 1, reason)
         self._record_workspace(story_id, worktree_id, info, branch)
+        story = {**story, "flows": self._flows(story_id)}
         allowed = list(story["file_ownership"]) + list(TEST_DIRECTORIES)
         findings: list[str] = []
         session_id: str | None = None
@@ -108,6 +131,7 @@ class StoryRunner:
                 )
                 session_id = getattr(result, "session_id", None) or session_id
                 report = parse_worker_result(result.text)
+                flow_report, report_findings = check_report((extract_json_object(result.text) or {}).get("flows"), [f["id"] for f in story["flows"]])
             except AgentRunError as exc:
                 findings = [f"Agent run failed: {exc.message}"]
                 self._finish(attempt, "FAILED", None, {**evidence, "agent_error": exc.to_dict()})
@@ -120,6 +144,11 @@ class StoryRunner:
             if report.status != "DONE":
                 self._finish(attempt, "FAILED", None, {**evidence, "blocked": report.summary})
                 return StoryOutcome(story_id, False, None, branch, number, [f"The agent reported BLOCKED: {report.summary}"], report.summary)
+            if report_findings:  # an invalid flow report is repaired like a failing check, before any test runs
+                findings = report_findings
+                self._finish(attempt, "FAILED", None, {**evidence, "findings": findings})
+                continue
+            evidence["flow_report"] = flow_report
             try:
                 findings, commit = await self._verify(worktree_id, info.path, story, allowed, story_id, evidence, self._original_base(worktree_id, info.base_commit), run_id=run["id"])
             except DridhError as exc:  # e.g. Git cannot commit: an environment problem the agent cannot repair
@@ -137,6 +166,7 @@ class StoryRunner:
                         f"Story {story_id}: {story['title']}. Acceptance criteria: {len(story['acceptance_criteria'])}; changed files: "
                         f"{len(evidence.get('changed_files', []))}; project tests passed; no new mocks; attempt {number}."),
                     metadata={"source_revision_sha": commit})
+                evidence["ledger_drafts"] = self._draft_deviations(story_id, flow_report, evidence)
                 self._finish(attempt, "PASSED", commit, evidence)
                 self._record_gate(story_id, commit, evidence)
                 return StoryOutcome(story_id, True, commit, branch, number, [], report.summary)
@@ -169,6 +199,26 @@ class StoryRunner:
         return kept
 
     # ----------------------------------------------------------------- helpers
+
+    def _flows(self, story_id: str) -> list[dict[str, Any]]:
+        from dridh.ledger.flows import flows_for_story
+
+        with self._store() as store:
+            return flows_for_story(store.read(), self.workspace.workspace_id, story_id)
+
+    def _draft_deviations(self, story_id: str, flow_report: dict[str, dict[str, str]], evidence: dict[str, Any]) -> list[str]:
+        """Write the flows reported CHANGED or NOT_DONE to the ledger as drafts awaiting a human decision. A failure is
+        recorded, not raised: the delivery check then still blocks, because the deviation has no ledger entry."""
+        from dridh.ledger.drafts import add_drafts, drafts_from_report
+
+        drafts = drafts_from_report(story_id, flow_report)
+        if not drafts:
+            return []
+        try:
+            return add_drafts(self.workspace, drafts)["written"]
+        except DridhError as exc:
+            evidence.setdefault("warnings", []).append(f"The deviations could not be written to the ledger: {exc.message}")
+            return []
 
     def _prepare(self, worktree_id: str, story_id: str, branch: str, prerequisites: list[str], baseline: str | None = None) -> Any:
         if baseline:  # delivery is on: start from the verified, pushed integration commit
@@ -218,6 +268,12 @@ class StoryRunner:
         if not test["passed"]:
             reason = "timed out" if test["timed_out"] else f"exited {test['exit_code']}"
             return [f"Tests ({' '.join(command)}) {reason}: {str(test['output'])[-800:]}"], None
+        if story.get("flows"):  # each flow reported IMPLEMENTED must be proven by a passing test named for it
+            proof = prove([f["id"] for f in story["flows"]], test, path)
+            evidence["flow_proof"] = proof
+            unproven = unproven_claims(evidence.get("flow_report") or {}, proof)
+            if unproven:
+                return unproven, None
         commit = await asyncio.to_thread(self.worktrees.commit_changes, worktree_id, f"{story_id}: {story['title']}"[:200])
         return [], commit
 

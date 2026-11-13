@@ -917,7 +917,6 @@ def executor_plan_run(info: Any, planner: Any, session_id: str, project: Path) -
     git("add", "-A")
     git("commit", "-q", "-m", "base")
     stories = {item["story_id"]: item for item in planner.execution_stories(session_id)}
-    passing = "import unittest\n\n\nclass T(unittest.TestCase):\n    def test_ok(self):\n        self.assertTrue(True)\n"
 
     class ScriptedAgent:
         async def run(self, **kwargs: Any) -> Any:
@@ -928,8 +927,14 @@ def executor_plan_run(info: Any, planner: Any, session_id: str, project: Path) -
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_text(f"# {story_id}\nVALUE = 1\n")
             (root / "tests").mkdir(exist_ok=True)
-            (root / "tests" / f"test_{re.sub('[^a-z0-9]', '_', story_id.lower())}.py").write_text(passing)
-            return SimpleNamespace(text=json.dumps({"status": "DONE", "summary": "ok", "files_changed": []}), session_id=f"ses-{story_id}")
+            # Like a real Executor: one passing test named for each approved flow the prompt lists, and a report of every flow.
+            flows = re.findall(r"^- ((?:SF|AF|EF|BE|BR)-\d{2}\.\d+) \(", kwargs["prompt"], re.MULTILINE)
+            names = [f"test_{flow.lower().replace('-', '_').replace('.', '_')}" for flow in flows] or ["test_ok"]
+            body = "".join(f"    def {name}(self):\n        self.assertTrue(True)\n\n" for name in names)
+            (root / "tests" / f"test_{re.sub('[^a-z0-9]', '_', story_id.lower())}.py").write_text(
+                f"import unittest\n\n\nclass T(unittest.TestCase):\n{body}")
+            reply = {"status": "DONE", "summary": "ok", "files_changed": [], "flows": [{"id": flow, "status": "IMPLEMENTED"} for flow in flows]}
+            return SimpleNamespace(text=json.dumps(reply), session_id=f"ses-{story_id}")
 
     settings = ExecutionConfig(test_command=["python3", "-m", "unittest", "discover", "-s", "tests"], test_timeout_seconds=120)
     controller = ExecutionController(info, planner=planner, story_runner=StoryRunner(info, ScriptedAgent(), settings), settings=settings)

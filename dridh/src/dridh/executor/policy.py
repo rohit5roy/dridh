@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import re
 import shlex
+import time
 from pathlib import Path
 from typing import Any
 
@@ -68,15 +69,16 @@ def detect_test_command(root: Path) -> list[str] | None:
     if (root / "package.json").is_file():
         return ["npm", "test"]
     if (root / "go.mod").is_file():
-        return ["go", "test", "./..."]
+        return ["go", "test", "-v", "./..."]  # -v names each test, so flows can be proven per test
     if any((root / name).is_file() for name in ("pyproject.toml", "setup.py", "setup.cfg", "pytest.ini")) or (root / "tests").is_dir():
-        return ["python3", "-m", "pytest", "-q"]
+        return ["python3", "-m", "pytest", "-q", "-rA"]  # -rA lists every test with its outcome
     return None
 
 
 async def run_test_command(argv: list[str], cwd: Path, *, timeout: float) -> dict[str, Any]:
     """Run one validated test command and return its evidence."""
     argv = validate_command(argv)
+    started = time.time()
     try:
         process = await run_process(
             argv[0], argv[1:], cwd=cwd, allowed_roots=(cwd,), env=TEST_ENV, timeout=timeout, clean_env=True,
@@ -84,8 +86,18 @@ async def run_test_command(argv: list[str], cwd: Path, *, timeout: float) -> dic
     except ProcessExecutionError as exc:
         return {"command": argv, "passed": False, "exit_code": None, "timed_out": exc.timed_out,
                 "output": str(redact(exc.message))[:MAX_OUTPUT_CHARS]}
-    output = str(redact((process.stdout + "\n" + process.stderr).strip()))[-MAX_OUTPUT_CHARS:]
-    return {"command": argv, "passed": process.exit_code == 0, "exit_code": process.exit_code, "timed_out": False, "output": output}
+    full = (process.stdout + "\n" + process.stderr).strip()
+    output = str(redact(full))[-MAX_OUTPUT_CHARS:]
+    return {"command": argv, "passed": process.exit_code == 0, "exit_code": process.exit_code, "timed_out": False, "output": output,
+            "test_results": per_test_results(full, cwd, started)}
+
+
+def per_test_results(output: str, root: Path, since: float) -> list[dict[str, Any]] | None:
+    """Each test's name and outcome, read from the whole output (before it is shortened) and fresh JUnit reports."""
+    from dridh.executor.flow_coverage import parse_results
+
+    results = parse_results(output, root, since)
+    return None if results is None else [{"name": r.name[:300], "passed": r.passed, "skipped": r.skipped} for r in results]
 
 
 MOCK_PATTERNS = (
