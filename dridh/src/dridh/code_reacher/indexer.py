@@ -11,7 +11,9 @@ a slow or failing embedder never leaves the index half-built; it is reported as 
 
 from __future__ import annotations
 
+import hashlib
 import posixpath
+import re
 import uuid
 from collections.abc import Callable
 from pathlib import Path
@@ -19,8 +21,8 @@ from typing import Any
 
 from dridh.code_reacher import extract_java, extract_python, extract_typescript
 from dridh.code_reacher.discovery import SourceFile, discover, snapshot_id
-from dridh.code_reacher.embeddings import EmbeddingProvider, VectorStore, default_provider, describe, split_identifier
-from dridh.code_reacher.model import ParsedFile
+from dridh.code_reacher.embeddings import EmbeddingProvider, VectorStore, default_provider, describe, split_identifier, vector_key
+from dridh.code_reacher.model import Entity, ParsedFile
 from dridh.common.errors import DridhError, ErrorCode
 from dridh.state.store import StateStore, utc_now
 from dridh.workspace.layout import WorkspaceInfo
@@ -31,8 +33,12 @@ PROGRESS_STEP = 64  # embeddings between progress reports
 Progress = Callable[[str, int, int], None]
 
 
-def parse(item: SourceFile, python_packages: frozenset[str] = frozenset()) -> ParsedFile:
-    source = item.absolute.read_bytes()
+BODY_CHARS = 600  # of an entity's code, after its first line, in the embedded text
+TEXT_CHARS = 2000  # the whole embedded text; the model reads about 512 tokens (1,500-2,000 characters) of it anyway
+
+
+def parse(item: SourceFile, python_packages: frozenset[str] = frozenset(), source: bytes | None = None) -> ParsedFile:
+    source = item.absolute.read_bytes() if source is None else source
     if item.language == "python":
         return extract_python.extract(source, item.path, python_packages)
     if item.language == "java":
@@ -41,9 +47,38 @@ def parse(item: SourceFile, python_packages: frozenset[str] = frozenset()) -> Pa
 
 
 def entity_text(row: Any, path: str) -> str:
-    """The text that represents an entity in full-text and semantic search (deterministic)."""
+    """The text that represents an entity in full-text search (deterministic): its kind, name, signature and path."""
     words = " ".join(split_identifier(row["name"]))
     return " ".join(part for part in (row["entity_type"], row["qualified_name"], row["signature"] or "", words, path) if part)
+
+
+def code_start(lines: list[str], start_line: int, end_line: int, language: str) -> str:
+    """The start of an entity's code after its first line, comments and docstrings removed, whitespace collapsed."""
+    code = "\n".join(lines[start_line:end_line])  # start_line is 1-based, so this skips the first line
+    if language == "python":
+        code = re.sub(r'("""|\'\'\')[\s\S]*?\1', " ", code)
+        code = re.sub(r"#[^\n]*", " ", code)
+    else:
+        code = re.sub(r"/\*[\s\S]*?\*/", " ", code)
+        code = re.sub(r"//[^\n]*", " ", code)
+    return re.sub(r"\s+", " ", code).strip()[:BODY_CHARS]
+
+
+def embedding_text(entity: Entity, path: str, lines: list[str], language: str) -> str:
+    """The text that is embedded for semantic search: what full-text search sees, plus the entity's doc comment (its
+    purpose) and the start of its code. Measured on CodeSearchNet (Python and Java, 200 queries each), this richer text
+    ranked the right method first far more often than the name and signature alone."""
+    head = entity_text({"entity_type": entity.entity_type, "name": entity.name, "qualified_name": entity.qualified_name,
+                        "signature": entity.signature}, path)
+    body = code_start(lines, entity.start_line, entity.end_line, language)
+    return " ".join(part for part in (head, entity.doc_text, body) if part)[:TEXT_CHARS]
+
+
+def embedding_texts(parsed: ParsedFile, source: bytes) -> dict[tuple[str, int], str]:
+    """``(qualified_name, start_line) -> embedded text`` for every entity of one parsed file (modules are not embedded)."""
+    lines = source.decode("utf-8", "replace").splitlines()
+    return {(entity.qualified_name, entity.start_line): embedding_text(entity, parsed.path, lines, parsed.language)
+            for entity in parsed.entities if entity.entity_type != "module"}
 
 
 def _current_run(connection: Any, workspace_id: str, repository: str) -> Any:
@@ -58,6 +93,9 @@ class CodeIndexer:
         self.workspace = workspace
         self._provider = provider
         self._progress: Progress = lambda phase, done, total: None
+        self._texts: dict[str, str] = {}  # entity id -> embedded text, for the files parsed by this run
+        self._root: Path = workspace.project_root
+        self._python_packages: frozenset[str] = frozenset()
 
     @property
     def provider(self) -> EmbeddingProvider:
@@ -83,6 +121,7 @@ class CodeIndexer:
         files, skipped = discover(root)
         snapshot = snapshot_id(root, files)
         python_packages = frozenset(posixpath.dirname(f.path) for f in files if f.language == "python" and posixpath.basename(f.path) == "__init__.py")
+        self._root, self._python_packages, self._texts = root, python_packages, {}
         workspace_id = self.workspace.workspace_id
         parsed_paths: list[str] = []
         adopted = removed = 0
@@ -112,7 +151,7 @@ class CodeIndexer:
                     if path not in current_paths:
                         self._drop_file(connection, row["id"])
                         removed += 1
-                changed: list[tuple[SourceFile, ParsedFile]] = []
+                changed: list[tuple[SourceFile, ParsedFile, dict[tuple[str, int], str]]] = []
                 self._progress("files", 0, len(files))
                 for done, item in enumerate(files, start=1):
                     self._progress("files", done, len(files))
@@ -123,9 +162,11 @@ class CodeIndexer:
                         continue
                     if row is not None:
                         self._drop_file(connection, row["id"])
-                    changed.append((item, parse(item, python_packages)))
-                for item, result in changed:
-                    self._store_file(connection, run_id, snapshot, item, result)
+                    source = item.absolute.read_bytes()
+                    result = parse(item, python_packages, source)
+                    changed.append((item, result, embedding_texts(result, source)))
+                for item, result, texts in changed:
+                    self._store_file(connection, run_id, snapshot, item, result, texts)
                     parsed_paths.append(item.path)
                 self._resolve_relations(connection)
                 unresolved = connection.execute(
@@ -139,7 +180,7 @@ class CodeIndexer:
             "run_id": run_id, "source_sha": snapshot, "status": "SUCCEEDED", "unchanged": False,
             "files_seen": len(files), "files_parsed": len(parsed_paths), "files_reused": adopted, "files_removed": removed,
             "skipped": [{"path": s.path, "reason": s.reason} for s in skipped], "unresolved_relations": unresolved,
-            "syntax_errors": [p.path for _, p in changed if p.has_syntax_errors],
+            "syntax_errors": [p.path for _, p, _ in changed if p.has_syntax_errors],
         }
         result_doc["embeddings"] = self._embed(run_id, snapshot) if embed else {"skipped": True}
         return result_doc
@@ -161,7 +202,8 @@ class CodeIndexer:
         connection.execute("DELETE FROM code_search_fts WHERE entity_id IN (SELECT id FROM code_entity WHERE file_id=?)", (file_id,))
         connection.execute("DELETE FROM code_file WHERE id=?", (file_id,))  # cascades entities, parameters, relations, endpoints, embeddings
 
-    def _store_file(self, connection: Any, run_id: str, snapshot: str, item: SourceFile, parsed: ParsedFile) -> None:
+    def _store_file(self, connection: Any, run_id: str, snapshot: str, item: SourceFile, parsed: ParsedFile,
+                    texts: dict[tuple[str, int], str]) -> None:
         workspace_id = self.workspace.workspace_id
         file_id = str(uuid.uuid4())
         connection.execute(
@@ -181,6 +223,8 @@ class CodeIndexer:
                                               (file_id, entity.qualified_name, entity.start_line)).fetchone()[0])
                 continue
             ids.append(entity_id)
+            if (entity.qualified_name, entity.start_line) in texts:
+                self._texts[entity_id] = texts[(entity.qualified_name, entity.start_line)]
             for parameter in entity.parameters:
                 connection.execute(
                     "INSERT INTO code_entity_parameter(id,entity_id,ordinal,name,type_name,default_value) VALUES(?,?,?,?,?,?)",
@@ -285,11 +329,13 @@ class CodeIndexer:
                 connection = store.read()
                 have = {row[0] for row in connection.execute(
                     "SELECT entity_id FROM code_embedding WHERE workspace_id=? AND model=? AND dimensions=?",
-                    (self.workspace.workspace_id, provider.model_id, provider.dimensions))}
+                    (self.workspace.workspace_id, vector_key(provider), provider.dimensions))}
                 rows = connection.execute(
-                    "SELECT e.id, e.name, e.qualified_name, e.entity_type, e.signature, f.path FROM code_entity e JOIN code_file f ON f.id=e.file_id "
-                    "WHERE f.index_run_id=? AND e.entity_type!='module'", (run_id,)).fetchall()
-                items = [(row["id"], entity_text(row, row["path"]), snapshot) for row in rows if row["id"] not in have]
+                    "SELECT e.id, e.name, e.qualified_name, e.entity_type, e.signature, e.start_line, f.path, f.language, f.content_sha256 "
+                    "FROM code_entity e JOIN code_file f ON f.id=e.file_id WHERE f.index_run_id=? AND e.entity_type!='module'", (run_id,)).fetchall()
+                rows = [row for row in rows if row["id"] not in have]
+                texts = self._texts_for(rows)
+                items = [(row["id"], texts[row["id"]], snapshot) for row in rows]
                 written, vec_available = 0, False
                 self._progress("embeddings", 0, len(items))
                 # In chunks, each committed: memory stays bounded on large repositories (Django: 44k entities), the
@@ -308,6 +354,33 @@ class CodeIndexer:
             return {**describe(provider), "written": written, "sqlite_vec": vec_available}
         except Exception as exc:  # noqa: BLE001 - the structural index is already committed; report, don't fail
             return {"error": f"{type(exc).__name__}: {exc}"[:300], "written": 0}
+
+    def _texts_for(self, rows: list[Any]) -> dict[str, str]:
+        """The embedded text of each entity row. Files parsed by this run already have theirs; files adopted from an
+        earlier run (or a model change on an unchanged snapshot) are parsed again from disk. A file that changed since it
+        was indexed falls back to the name-and-signature text; the next index run re-parses it anyway."""
+        texts = {row["id"]: self._texts[row["id"]] for row in rows if row["id"] in self._texts}
+        by_file: dict[str, list[Any]] = {}
+        for row in rows:
+            if row["id"] not in texts:
+                by_file.setdefault(row["path"], []).append(row)
+        for path, file_rows in by_file.items():
+            reread = _reread(self._root, path, file_rows[0]["language"], file_rows[0]["content_sha256"], self._python_packages)
+            for row in file_rows:
+                texts[row["id"]] = reread.get((row["qualified_name"], row["start_line"])) or entity_text(row, path)
+        return texts
+
+
+def _reread(root: Path, path: str, language: str, sha256: str, python_packages: frozenset[str]) -> dict[tuple[str, int], str]:
+    """The embedded texts of one indexed file, parsed again from disk; empty when the file changed since it was indexed."""
+    try:
+        source = (root / path).read_bytes()
+    except OSError:
+        return {}
+    if hashlib.sha256(source).hexdigest() != sha256:
+        return {}
+    item = SourceFile(path=path, absolute=root / path, language=language, sha256=sha256, size=len(source))
+    return embedding_texts(parse(item, python_packages, source), source)
 
 
 def require_index(connection: Any, workspace_id: str) -> Any:

@@ -23,7 +23,16 @@ from typing import Any, Protocol
 
 from dridh.state.store import utc_now
 
-FASTEMBED_MODEL = "BAAI/bge-small-en-v1.5"
+# thenlper/gte-small (MIT, 33M parameters, 384 dimensions, mean pooling). On a CodeSearchNet benchmark (Python and Java,
+# 1,000 methods and 200 queries each, the text from `embedding_text`) it ranked the right method first more often than
+# BAAI/bge-small-en-v1.5 (Python 88% vs 86%, Java 83% vs 79%) at the same speed. Pinned to one revision of its files.
+FASTEMBED_MODEL = "thenlper/gte-small"
+FASTEMBED_REVISION = "17e1f347d17fe144873b1201da91788898c639cd"
+FASTEMBED_FILES = ["onnx/model.onnx", "config.json", "tokenizer.json", "tokenizer_config.json", "special_tokens_map.json", "vocab.txt"]
+FASTEMBED_CONTEXT = 512  # BERT's position table; the published tokenizer_config.json says 1e30 ("unknown")
+# What the vectors were made from. Stored with each vector (next to the model name), so changing either the model or
+# this text makes the old vectors stale: they are dropped and the code is embedded again.
+TEXT_FORMAT = "text-2"
 EMBED_BATCH = 16
 HASH_MODEL = "dridh-hash-v1"
 HASH_DIMENSIONS = 128
@@ -63,6 +72,29 @@ class HashingEmbedder:
         return vectors
 
 
+def vector_key(provider: EmbeddingProvider) -> str:
+    """What identifies comparable vectors: the model and the text format, e.g. ``thenlper/gte-small+text-2``."""
+    return f"{provider.model_id}+{TEXT_FORMAT}"
+
+
+def expected_vector_key() -> str:
+    """The key new vectors would get here, without loading the model (cheap enough for a status line)."""
+    import importlib.util
+
+    if os.environ.get("DRIDH_EMBEDDINGS", "").lower() == "hash" or importlib.util.find_spec("fastembed") is None:
+        return f"{HASH_MODEL}+{TEXT_FORMAT}"
+    return f"{FASTEMBED_MODEL}+{TEXT_FORMAT}"
+
+
+def vector_freshness(connection: sqlite3.Connection, workspace_id: str) -> dict[str, Any]:
+    """Whether the stored vectors match what this install would make now. ``stale`` is true when they were made by
+    another model or from another text format (for example after an upgrade): semantic search then finds nothing until
+    the code is embedded again. One active key per workspace is kept, so a single row tells which key is stored."""
+    row = connection.execute("SELECT model FROM code_embedding WHERE workspace_id=? LIMIT 1", (workspace_id,)).fetchone()
+    stored, expected = (row[0] if row else None), expected_vector_key()
+    return {"stored": stored, "expected": expected, "stale": stored is not None and stored != expected}
+
+
 def model_cache_dir() -> str:
     """Where the FastEmbed model is kept: ``FASTEMBED_CACHE_PATH``, else the user's cache directory. FastEmbed's own
     default is the temporary directory, which is emptied on reboot, so the model would be downloaded again and search
@@ -72,6 +104,25 @@ def model_cache_dir() -> str:
         return explicit
     base = os.environ.get("XDG_CACHE_HOME") or os.path.join(os.path.expanduser("~"), ".cache")
     return os.path.join(base, "dridh", "fastembed")
+
+
+def model_files() -> str:
+    """The model's files in Dridh's cache, downloaded once (about 130 MB) from huggingface.co. Offline afterwards."""
+    target = os.path.join(model_cache_dir(), FASTEMBED_MODEL.replace("/", "--"), FASTEMBED_REVISION[:12])
+    ready = os.path.join(target, ".dridh-ready")
+    if not os.path.exists(ready):
+        from huggingface_hub import snapshot_download  # a FastEmbed dependency
+
+        snapshot_download(FASTEMBED_MODEL, revision=FASTEMBED_REVISION, local_dir=target, allow_patterns=FASTEMBED_FILES)
+        config_path = os.path.join(target, "tokenizer_config.json")
+        with open(config_path, encoding="utf-8") as handle:
+            config = json.load(handle)
+        config["model_max_length"] = FASTEMBED_CONTEXT
+        with open(config_path, "w", encoding="utf-8") as handle:
+            json.dump(config, handle)
+        with open(ready, "w", encoding="utf-8") as handle:
+            handle.write(FASTEMBED_REVISION)
+    return target
 
 
 class FastEmbedProvider:
@@ -89,7 +140,14 @@ class FastEmbedProvider:
             onnxruntime.set_default_logger_severity(3)
         except Exception:  # noqa: BLE001, S110 - only quieter logs; never a reason to fail
             pass
-        self._model = TextEmbedding(model_name=FASTEMBED_MODEL, cache_dir=model_cache_dir())
+        from fastembed.common.model_description import ModelSource, PoolingType
+
+        try:
+            TextEmbedding.add_custom_model(model=FASTEMBED_MODEL, pooling=PoolingType.MEAN, normalization=True,
+                                           sources=ModelSource(hf=FASTEMBED_MODEL), dim=self.dimensions, model_file="onnx/model.onnx")
+        except ValueError:  # already registered by an earlier provider in this process
+            pass
+        self._model = TextEmbedding(model_name=FASTEMBED_MODEL, cache_dir=model_cache_dir(), specific_model_path=model_files())
 
     def embed(self, texts: list[str]) -> list[list[float]]:
         # Small batches: FastEmbed pads every text in a batch to the longest one, so its default of 256 made memory peak
@@ -164,21 +222,22 @@ class VectorStore:
         if not self.connection.in_transaction:
             raise RuntimeError("VectorStore writes require a transaction.")
         # One active model per workspace: vectors from another model are not comparable, so they are dropped.
+        key = vector_key(provider)
         stale = self.connection.execute(
-            "SELECT rowid FROM code_embedding WHERE workspace_id=? AND (model!=? OR dimensions!=?)",
-            (self.workspace_id, provider.model_id, provider.dimensions),
+            "SELECT rowid FROM code_embedding WHERE workspace_id=? AND (model!=? OR dimensions!=?) LIMIT 1",
+            (self.workspace_id, key, provider.dimensions),
         ).fetchall()
         if stale:
             self.connection.execute("DELETE FROM code_embedding WHERE workspace_id=? AND (model!=? OR dimensions!=?)",
-                                    (self.workspace_id, provider.model_id, provider.dimensions))
+                                    (self.workspace_id, key, provider.dimensions))
         self._ensure_vec_table(provider.dimensions)
         vectors = provider.embed([text for _, text, _ in items])
         now = utc_now()
         for (entity_id, _text, source_sha), vector in zip(items, vectors, strict=True):
-            self.connection.execute("DELETE FROM code_embedding WHERE entity_id=? AND model=?", (entity_id, provider.model_id))
+            self.connection.execute("DELETE FROM code_embedding WHERE entity_id=? AND model=?", (entity_id, key))
             self.connection.execute(
                 "INSERT INTO code_embedding(id,workspace_id,entity_id,model,dimensions,vector_json,source_sha,created_at) VALUES(?,?,?,?,?,?,?,?)",
-                (str(uuid.uuid4()), self.workspace_id, entity_id, provider.model_id, provider.dimensions, json.dumps(vector), source_sha, now),
+                (str(uuid.uuid4()), self.workspace_id, entity_id, key, provider.dimensions, json.dumps(vector), source_sha, now),
             )
         self.sync_vec_table(provider.dimensions)
         return len(items)
@@ -198,9 +257,10 @@ class VectorStore:
 
     def search(self, provider: EmbeddingProvider, query: str, limit: int, allowed_entities: set[str] | None = None) -> list[tuple[str, float]]:
         """(entity_id, similarity 0..1) nearest to ``query``, best first."""
+        key = vector_key(provider)
         stored = self.connection.execute(
             "SELECT 1 FROM code_embedding WHERE workspace_id=? AND model=? AND dimensions=? LIMIT 1",
-            (self.workspace_id, provider.model_id, provider.dimensions),
+            (self.workspace_id, key, provider.dimensions),
         ).fetchone()
         if stored is None:
             return []
@@ -212,7 +272,7 @@ class VectorStore:
             return [(row[0], 1.0 - float(row[1]) ** 2 / 2.0) for row in rows]  # vec0 returns L2 distance; vectors are unit length
         rows = self.connection.execute(
             "SELECT entity_id, vector_json FROM code_embedding WHERE workspace_id=? AND model=? AND dimensions=?",
-            (self.workspace_id, provider.model_id, provider.dimensions)).fetchall()
+            (self.workspace_id, key, provider.dimensions)).fetchall()
         scored = [(row[0], cosine(vector, json.loads(row[1]))) for row in rows if allowed_entities is None or row[0] in allowed_entities]
         return sorted(scored, key=lambda item: item[1], reverse=True)[:limit]
 

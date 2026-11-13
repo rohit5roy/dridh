@@ -40,3 +40,41 @@ def join_path(base: str, sub: str) -> str:
 
 def dotted(*parts: str) -> str:
     return ".".join(part for part in parts if part)
+
+
+_DOC_TAG_LINE = ("@", ":param", ":return", ":type", ":rtype", ":raises", ">>>", "...")
+
+
+def clean_doc(raw: str, limit: int = 1000) -> str:
+    """A doc comment as plain prose: comment markers, tag lines (``@param``, ``:return:``), doctest lines, ``{@code x}``
+    wrappers and HTML tags removed, whitespace collapsed."""
+    lines = []
+    for value in raw.strip().removeprefix("/**").removeprefix("/*").removesuffix("*/").splitlines():
+        value = value.strip().lstrip("*").strip()
+        if value and not value.startswith(_DOC_TAG_LINE):
+            lines.append(value)
+    prose = re.sub(r"\{@\w+\s+([^}]*)\}", r"\1", " ".join(lines))
+    return squash(re.sub(r"<[^>]+>", " ", prose), limit)
+
+
+def doc_comment(node: Any, wrappers: tuple[str, ...] = ()) -> str:
+    """The ``/** ... */`` comment written directly above ``node`` (Java, TypeScript, JavaScript), or "".
+
+    Decorators between the comment and the declaration are skipped. When the declaration is wrapped (``export``,
+    ``const x = () => ...``), the comment sits above the outermost wrapper, so ``wrappers`` names the node types to
+    climb through first."""
+    while node.parent is not None and node.parent.type in wrappers and _previous(node) is None:
+        node = node.parent
+    previous = _previous(node)
+    while previous is not None and previous.type == "decorator":
+        previous = _previous(previous)
+    if previous is not None and previous.type in ("comment", "block_comment") and text(previous).startswith("/**"):
+        return text(previous)
+    return ""
+
+
+def _previous(node: Any) -> Any:
+    previous = node.prev_sibling
+    while previous is not None and not previous.is_named and text(previous) in ("export", "default", ";", ","):
+        previous = previous.prev_sibling
+    return previous if previous is not None and previous.is_named else None

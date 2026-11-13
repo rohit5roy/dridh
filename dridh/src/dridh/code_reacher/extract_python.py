@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import PurePosixPath
 from typing import Any
 
-from dridh.code_reacher._common import HTTP_VERBS, dotted, end_line, line, squash, string_value, text
+from dridh.code_reacher._common import HTTP_VERBS, clean_doc, dotted, end_line, line, squash, string_value, text
 from dridh.code_reacher.languages import parser_for
 from dridh.code_reacher.model import Endpoint, Entity, Parameter, ParsedFile, Relation
 
@@ -25,15 +25,19 @@ def module_name(path: str, packages: frozenset[str] | set[str] = frozenset()) ->
     return ".".join(parts) or pure.stem
 
 
-def _docstring(body: Any) -> str:
+def _full_docstring(body: Any) -> str:
     if body is None:
         return ""
     for child in body.named_children:
         if child.type == "expression_statement" and child.named_children and child.named_children[0].type == "string":
-            value = string_value(child.named_children[0]) or ""
-            return value.strip().splitlines()[0].strip() if value.strip() else ""
+            return (string_value(child.named_children[0]) or "").strip()
         break
     return ""
+
+
+def _docstring(body: Any) -> str:
+    value = _full_docstring(body)
+    return value.splitlines()[0].strip() if value else ""
 
 
 def _parameters(node: Any, *, is_method: bool) -> list[Parameter]:
@@ -109,7 +113,8 @@ def extract(source: bytes, path: str, packages: frozenset[str] | set[str] = froz
         name = text(node.child_by_field_name("name"))
         qualified = dotted(module, *scope, name)
         if node.type == "class_definition":
-            entity = Entity("class", name, qualified, line(node), end_line(node), doc=_docstring(node.child_by_field_name("body")))
+            body = node.child_by_field_name("body")
+            entity = Entity("class", name, qualified, line(node), end_line(node), doc=_docstring(body), doc_text=clean_doc(_full_docstring(body)))
             parsed.entities.append(entity)
             index = len(parsed.entities) - 1
             supers = node.child_by_field_name("superclasses")
@@ -122,7 +127,8 @@ def extract(source: bytes, path: str, packages: frozenset[str] | set[str] = froz
         returns = node.child_by_field_name("return_type")
         signature = f"{name}({', '.join(p.name + (': ' + p.type_name if p.type_name else '') for p in parameters)})" + (f" -> {squash(text(returns), 80)}" if returns is not None else "")
         entity = Entity("method" if in_class else "function", name, qualified, line(node), end_line(node), signature=signature,
-                        doc=_docstring(node.child_by_field_name("body")), parameters=parameters)
+                        doc=_docstring(node.child_by_field_name("body")), doc_text=clean_doc(_full_docstring(node.child_by_field_name("body"))),
+                        parameters=parameters)
         parsed.entities.append(entity)
         index = len(parsed.entities) - 1
         endpoints_from(decorators, index)

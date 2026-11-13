@@ -170,6 +170,13 @@ export default Plugin.define({
         setState(next)
         setUnset(false)
         setError(undefined)
+        // After an upgrade the index's vectors can come from an older search model or text: semantic search finds
+        // nothing until the code is embedded again, so do that in the background, once per folder per session.
+        if (next?.code_index?.vectors_stale && !indexing() && !reindexed.has(folder)) {
+          reindexed.add(folder)
+          ctx.ui.toast.show({ title: "Dridh", message: "Code search was improved. Re-indexing the code in the background.", variant: "info", duration: 6000 })
+          startIndex("upgrade")
+        }
       } catch (e) {
         if (folder !== root()) return
         if ((e as { code?: string }).code === WORKSPACE_NOT_FOUND) {
@@ -221,6 +228,8 @@ export default Plugin.define({
     // ------------------------------------------------------------------ indexing in the background
 
     type Indexing = { folder: string; phase: "files" | "embeddings"; done: number; total: number }
+    /** Folders re-indexed this session because their vectors were stale (never retried in a loop). */
+    const reindexed = new Set<string>()
     const [indexing, setIndexing] = createSignal<Indexing | undefined>(undefined)
     /** The index job for the folder OpenCode is in now, if one is running. */
     const indexingHere = () => (indexing()?.folder === root() ? indexing() : undefined)
@@ -289,7 +298,7 @@ export default Plugin.define({
     ]
 
     /** Runs `dridh index` beside OpenCode; its progress (JSON lines on stderr) feeds the status line and the overview. */
-    function startIndex(): void {
+    function startIndex(why: "setup" | "upgrade" = "setup"): void {
       const folder = root()
       if (indexing()) return ctx.ui.toast.show({ message: "The code is already being indexed.", variant: "info" })
       setIndexing({ folder, phase: "files", done: 0, total: 0 })
@@ -323,7 +332,8 @@ export default Plugin.define({
         try {
           const result = readCliResult(stdout, stderr + partial, code !== 0) as { files_seen?: number }
           const files = Number(result?.files_seen ?? 0)
-          const message = `Code indexed (${files} file${files === 1 ? "" : "s"}). ${START_FEATURE}`
+          const counted = `${files} file${files === 1 ? "" : "s"}`
+          const message = why === "upgrade" ? `Code search is up to date (${counted} re-indexed).` : `Code indexed (${counted}). ${START_FEATURE}`
           ctx.ui.toast.show({ title: "Dridh", message, variant: "success", duration: 8000 })
           void ctx.attention.notify({ title: "Dridh", message, notification: { when: "blurred" }, sound: { name: "done", when: "blurred" } })
         } catch (e) {

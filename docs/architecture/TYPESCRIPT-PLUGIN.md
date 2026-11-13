@@ -133,3 +133,11 @@ While Dridh is working (setting up, indexing, syncing a feature, a review, or a 
 status line starts with a braille spinner and what is being done, for example `⠹ dridh · searching code`. The Dridh
 panel shows the same spinner below its list (the setup steps or the feature overview), for example
 `⠹ indexing the code · embedding 42%…`. The frame timer runs only while something is in progress.
+
+## Re-indexing after an upgrade
+
+Code Reacher stores each vector with the model and text format that made it. When an upgrade changes either, `dridh ui
+state` reports `code_index.vectors_stale`, and the panel re-indexes the folder in the background (once per folder per
+OpenCode session, so a failure is never retried in a loop). It shows "Code search was improved. Re-indexing the code in
+the background." and, when done, "Code search is up to date (N files re-indexed).", with the usual spinner and progress
+in between. Until then, lookups return full-text matches and say why (`vector.stale`).

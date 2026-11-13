@@ -163,7 +163,60 @@ def test_switching_embedding_model_drops_vectors_of_the_old_one(repo):
 
     result = CodeIndexer(info, provider=OtherModel()).index()  # unchanged snapshot, but the vectors belong to the old model
     assert result["unchanged"] is True and result["embeddings"]["written"] > 0
-    assert {r["model"] for r in _rows(info, "SELECT DISTINCT model FROM code_embedding")} == {"other-model"}
+    assert {r["model"] for r in _rows(info, "SELECT DISTINCT model FROM code_embedding")} == {"other-model+text-2"}
+
+
+def test_vectors_from_an_older_model_or_text_are_reported_stale_and_rebuilt_by_the_next_index(repo, monkeypatch):
+    """After an upgrade the stored vectors come from another model or text format: status says so, a lookup explains why
+    only full-text matches came back, and the next index (an unchanged snapshot) embeds everything again."""
+    _, info = repo
+    monkeypatch.setenv("DRIDH_EMBEDDINGS", "hash")
+    _index(info)
+    assert _search(info).status()["vectors_stale"] is False
+    connection = sqlite3.connect(info.state_db)
+    with connection:
+        connection.execute("UPDATE code_embedding SET model='BAAI/bge-small-en-v1.5'")  # what an older release stored
+    connection.close()
+    status = _search(info).status()
+    assert status["vectors_stale"] is True and status["embeddings"][0]["model"] == "BAAI/bge-small-en-v1.5"
+    answer = _search(info).lookup("price with tax")
+    assert answer["vector"]["used"] is False and answer["vector"]["stale"] is True and "Re-index" in answer["vector"]["note"]
+    assert answer["results"]  # full-text search still answers
+    from dridh.ui.state import workspace_state
+
+    assert workspace_state(info)["code_index"] == {"vectors_stale": True}
+    again = _index(info)
+    assert again["unchanged"] is True and again["embeddings"]["written"] == len(_rows(info, "SELECT id FROM code_entity WHERE entity_type!='module'"))
+    assert _search(info).status()["vectors_stale"] is False and workspace_state(info)["code_index"] == {"vectors_stale": False}
+    assert _search(info).lookup("price with tax")["vector"]["used"] is True
+
+
+def test_the_embedded_text_carries_the_doc_comment_and_the_start_of_the_code(repo):
+    """Name and signature alone rank poorly; the doc comment (purpose) and the start of the body are embedded too, for
+    files parsed by this run and for files adopted from an earlier one alike."""
+    project, info = repo
+    seen: list[str] = []
+
+    class Recording(HashingEmbedder):
+        def embed(self, texts):
+            seen.extend(texts)
+            return super().embed(texts)
+
+    (project / "py/app/pricing.py").write_text(
+        'def net_price(amount: float, rate: float) -> float:\n    """Work out the price after tax.\n\n    :param amount: gross\n    """\n'
+        "    # a comment that is not embedded\n    return amount * (1 + rate)\n")
+    CodeIndexer(info, provider=Recording()).index()
+    text = next(t for t in seen if t.startswith("function app.pricing.net_price"))
+    assert "Work out the price after tax." in text and "return amount * (1 + rate)" in text
+    assert ":param" not in text and "not embedded" not in text and text.count("net_price(") == 1
+    assert any(t.startswith("method com.shop.OrderService.lookup") and t.endswith("return id.trim(); }") for t in seen)
+
+    class Other(Recording):
+        model_id = "other-model"
+
+    seen.clear()
+    CodeIndexer(info, provider=Other()).index()  # unchanged snapshot: every file is read again from disk
+    assert any("Work out the price after tax." in t and "return amount" in t for t in seen)
 
 
 def test_an_interrupted_embedding_is_completed_by_the_next_index(repo):

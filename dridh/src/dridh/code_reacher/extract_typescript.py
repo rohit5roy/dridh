@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from dridh.code_reacher._common import HTTP_VERBS, dotted, end_line, join_path, line, squash, string_value, text
+from dridh.code_reacher._common import HTTP_VERBS, clean_doc, doc_comment, dotted, end_line, join_path, line, squash, string_value, text
 from dridh.code_reacher.languages import parser_for
 from dridh.code_reacher.model import Endpoint, Entity, Parameter, ParsedFile, Relation
 
@@ -12,6 +12,9 @@ _CLASSES = {"class_declaration": "class", "abstract_class_declaration": "class",
             "interface_declaration": "interface", "enum_declaration": "enum"}
 _FUNCTIONS = ("function_declaration", "generator_function_declaration", "function_expression", "arrow_function")
 _NEST_VERBS = {"Get": "GET", "Post": "POST", "Put": "PUT", "Delete": "DELETE", "Patch": "PATCH", "Options": "OPTIONS", "Head": "HEAD"}
+
+# A doc comment sits above the outermost of these (`export const f = () => ...`), not above the function itself.
+_DOC_WRAPPERS = ("export_statement", "lexical_declaration", "variable_declaration", "variable_declarator", "public_field_definition", "field_definition")
 
 
 def module_name(path: str) -> str:
@@ -86,7 +89,8 @@ def extract(source: bytes, path: str, language: str = "typescript") -> ParsedFil
         returns = node.child_by_field_name("return_type")
         signature = f"{name}({', '.join(p.name + (': ' + p.type_name if p.type_name else '') for p in parameters)})" + (
             f": {squash(text(returns).lstrip(': '), 80)}" if returns is not None else "")
-        parsed.entities.append(Entity(entity_type, name, dotted(module, *scope, name), line(node), end_line(node), signature=signature, parameters=parameters))
+        parsed.entities.append(Entity(entity_type, name, dotted(module, *scope, name), line(node), end_line(node), signature=signature, parameters=parameters,
+                                      doc_text=clean_doc(doc_comment(node, _DOC_WRAPPERS))))
         index = len(parsed.entities) - 1
         for decorator in decorators:
             info = _decorator_call(decorator)
@@ -110,7 +114,8 @@ def extract(source: bytes, path: str, language: str = "typescript") -> ParsedFil
         kind = node.type
         if kind in _CLASSES:
             name = text(node.child_by_field_name("name")) or "(anonymous)"
-            parsed.entities.append(Entity(_CLASSES[kind], name, dotted(module, *scope, name), line(node), end_line(node)))
+            parsed.entities.append(Entity(_CLASSES[kind], name, dotted(module, *scope, name), line(node), end_line(node),
+                                          doc_text=clean_doc(doc_comment(node, _DOC_WRAPPERS))))
             index = len(parsed.entities) - 1
             heritage(node, index)
             base = None

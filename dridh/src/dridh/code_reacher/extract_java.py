@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from dridh.code_reacher._common import dotted, end_line, join_path, line, squash, string_value, text
+from dridh.code_reacher._common import clean_doc, doc_comment, dotted, end_line, join_path, line, squash, string_value, text
 from dridh.code_reacher.languages import parser_for
 from dridh.code_reacher.model import Endpoint, Entity, Parameter, ParsedFile, Relation
 
@@ -86,7 +86,8 @@ def extract(source: bytes, path: str) -> ParsedFile:
         kind = node.type
         if kind in _TYPES:
             name = text(node.child_by_field_name("name"))
-            parsed.entities.append(Entity(_TYPES[kind], name, dotted(package, *scope, name), line(node), end_line(node)))
+            parsed.entities.append(Entity(_TYPES[kind], name, dotted(package, *scope, name), line(node), end_line(node),
+                                          doc_text=clean_doc(doc_comment(node))))
             index = len(parsed.entities) - 1
             heritage(node, index)
             bases: list[str] = []
@@ -104,7 +105,8 @@ def extract(source: bytes, path: str) -> ParsedFile:
             signature = f"{name}({', '.join((p.type_name + ' ' if p.type_name else '') + p.name for p in parameters)})" + (
                 f": {squash(text(returns), 80)}" if returns is not None and kind == "method_declaration" else "")
             parsed.entities.append(Entity("constructor" if kind == "constructor_declaration" else "method", name,
-                                          dotted(package, *scope, name), line(node), end_line(node), signature=signature, parameters=parameters))
+                                          dotted(package, *scope, name), line(node), end_line(node), signature=signature, parameters=parameters,
+                                          doc_text=clean_doc(doc_comment(node))))
             index = len(parsed.entities) - 1
             for annotation in _annotations(node):
                 label = _annotation_name(annotation)

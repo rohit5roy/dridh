@@ -84,6 +84,19 @@ def test_the_embedding_provider_quiets_onnx_runtime_warnings(monkeypatch) -> Non
 
     calls: list[int] = []
     monkeypatch.setitem(sys.modules, "onnxruntime", types.SimpleNamespace(set_default_logger_severity=calls.append))
-    monkeypatch.setitem(sys.modules, "fastembed", types.SimpleNamespace(TextEmbedding=lambda **kwargs: object()))
+    loaded: list[dict] = []
+
+    class TextEmbedding:
+        add_custom_model = staticmethod(lambda **kwargs: None)
+
+        def __init__(self, **kwargs) -> None:
+            loaded.append(kwargs)
+
+    monkeypatch.setitem(sys.modules, "fastembed", types.SimpleNamespace(TextEmbedding=TextEmbedding))
+    monkeypatch.setitem(sys.modules, "fastembed.common", types.SimpleNamespace())
+    monkeypatch.setitem(sys.modules, "fastembed.common.model_description",
+                        types.SimpleNamespace(ModelSource=lambda **kwargs: kwargs, PoolingType=types.SimpleNamespace(MEAN="mean")))
+    monkeypatch.setattr(embeddings, "model_files", lambda: "/models/gte-small")
     embeddings.FastEmbedProvider()
     assert calls == [3], "warnings and below are not printed"
+    assert loaded == [{"model_name": "thenlper/gte-small", "cache_dir": embeddings.model_cache_dir(), "specific_model_path": "/models/gte-small"}]
