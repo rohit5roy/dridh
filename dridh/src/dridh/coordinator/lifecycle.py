@@ -205,9 +205,15 @@ class StageEvidence:
                 ).fetchall()
             counts = {row["status"]: row["n"] for row in rows}
             total, done = sum(counts.values()), counts.get("COMPLETED", 0)
-            if total == 0 or done != total:
+            if total == 0 or done + counts.get("BLOCKED", 0) != total:
                 return Readiness(False, [f"{done} of {total} stories are COMPLETED; all must be before delivery review."], {"stories": counts})
-            return Readiness(True, evidence={"stories": counts})
+            # Every approved flow must be proven by a passing test or explained by an approved ledger entry (a script decides).
+            from dridh.coordinator.delivery_check import delivery_readiness
+
+            check = delivery_readiness(self.workspace)
+            if not check["ready"]:
+                return Readiness(False, check["blockers"], {"stories": counts, "flows": check["flows"]})
+            return Readiness(True, evidence={"stories": counts, "flows": check["flows"]})
         if stage == "DELIVERY_REVIEW":
             return Readiness(False, ["Completion is an explicit human decision (`dridh feature complete`)."])
         return Readiness(False, ["The feature is complete."])

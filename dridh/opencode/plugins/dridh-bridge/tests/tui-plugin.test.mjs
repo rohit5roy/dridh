@@ -96,6 +96,11 @@ test("code changed outside Dridh is re-indexed in the background once the files 
   assert.match(source, /if \(why === "changes"\) failedFingerprint\.set\(folder, fingerprint\)/, "a failure is not retried in a loop")
 })
 
+test("deviations from the approved use cases are approved by a person on the real terminal", () => {
+  assert.match(source, /if \(a\.kind === "deviations"\) \{[\s\S]{0,500}onTerminal\([\s\S]{0,300}\["ledger", "approve", id, "--reviewer", name\]\)/)
+  assert.match(source, /if \(a\.kind === "delivery_blocked"\) return ctx\.ui\.toast\.show/)
+})
+
 test("before the first feature the TUI shows the setup steps and one next action", () => {
   assert.ok(source.includes("Setup · step"), "the overview shows which step setup is at")
   assert.match(source, /`dridh · \$\{step\} · /, "the status line shows the setup step")

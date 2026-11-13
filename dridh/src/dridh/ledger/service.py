@@ -150,6 +150,11 @@ class LedgerService:
             stories = {r["story_id"]: r["status"] for r in connection.execute("SELECT story_id, status FROM story WHERE workspace_id=?", (self.workspace.workspace_id,))}
             whole_use_cases = {r[0] for r in connection.execute("SELECT DISTINCT use_case_id FROM story_use_case WHERE workspace_id=? AND flow_id IS NULL", (self.workspace.workspace_id,))}
             covered_flows = {(r[0], r[1]) for r in connection.execute("SELECT use_case_id, flow_id FROM story_use_case WHERE workspace_id=? AND flow_id IS NOT NULL", (self.workspace.workspace_id,))}
+            from dridh.ledger.flows import delivered_flows
+
+            # Flows a completed story's Executor reported CHANGED or NOT_DONE: a NOT_DONE entry for them is expected.
+            reported = {(story, flow) for story, items in delivered_flows(connection, self.workspace.workspace_id).items()
+                        for flow, item in items.items() if item.get("status") in ("CHANGED", "NOT_DONE")}
         if use_cases:
             for entry in file_entries:
                 if entry["origin_id"] not in use_cases and entry["origin_id"] not in flows:
@@ -163,7 +168,8 @@ class LedgerService:
                     continue
                 if story not in stories:
                     findings.append(_finding("LEDGER_UNKNOWN_REFERENCE", f"{story} is not a planned story.", entry["ledger_id"]))
-                elif entry["deviation_status"] in ("NOT_DONE", "WONT_DO") and stories[story] == "COMPLETED":
+                elif (entry["deviation_status"] in ("NOT_DONE", "WONT_DO") and stories[story] == "COMPLETED"
+                      and (story, entry["origin_id"]) not in reported):
                     findings.append(_finding("LEDGER_STATUS_MISMATCH", f"{entry['ledger_id']} says {entry['deviation_status']} but {story} is COMPLETED.", entry["ledger_id"]))
                 elif entry["deviation_status"] == "DONE" and stories[story] in ("BLOCKED", "NOT_STARTED"):
                     findings.append(_finding("LEDGER_STATUS_MISMATCH", f"{entry['ledger_id']} says DONE but {story} is {stories[story]}.", entry["ledger_id"], severity="WARNING"))

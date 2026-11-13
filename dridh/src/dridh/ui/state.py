@@ -127,7 +127,8 @@ def _runs(info: WorkspaceInfo, feature_id: str) -> list[dict[str, Any]]:
     return out
 
 
-def _human_action(feature: dict[str, Any], stages: dict[str, Any], runs: list[dict[str, Any]]) -> dict[str, Any] | None:
+def _human_action(feature: dict[str, Any], stages: dict[str, Any], runs: list[dict[str, Any]],
+                  info: WorkspaceInfo | None = None) -> dict[str, Any] | None:
     stage = feature["stage"]
     for key in ("use_cases", "design"):
         doc = stages.get(key)
@@ -150,6 +151,18 @@ def _human_action(feature: dict[str, Any], stages: dict[str, Any], runs: list[di
         return {"kind": "approve", "text": f"Approve the {doc['label'].lower()}.", "stage_key": by_stage[stage]}
     if stage == "EXECUTION":
         active = next((r for r in reversed(runs) if r["status"] in ("RUNNING", "PAUSED")), None)
+        if active is None and runs and info is not None:
+            # The stories ran. What still stands between the feature and delivery review is decided by a script.
+            from dridh.coordinator.delivery_check import delivery_readiness
+
+            check = delivery_readiness(info)
+            if check["awaiting_approval"]:
+                count = len(check["awaiting_approval"])
+                return {"kind": "deviations", "ledger_ids": check["awaiting_approval"],
+                        "text": f"Approve or reject {count} deviation{'s' if count != 1 else ''} from the approved use cases: "
+                                f"dridh ledger approve {check['awaiting_approval'][0]} --reviewer <name>."}
+            if not check["ready"]:
+                return {"kind": "delivery_blocked", "text": check["blockers"][0]}
         if active is None:
             return {"kind": "execute", "text": "Start the execution run."}
         waiting = next((lot for lot in active["lots"] if lot["status"] == "AWAITING_REVIEW"), None)
@@ -231,7 +244,7 @@ def workspace_state(info: WorkspaceInfo, feature_ref: str | None = None) -> dict
                     "status": feature["status"], "blocked_reason": feature.get("blocked_reason"), "blockers": status.get("blockers") or []},
         "features": [{"slug": f["slug"], "stage": f["stage"]} for f in features],
         "timeline": timeline, "documents": stages, "runs": runs,
-        "human_action": _human_action(feature, stages, runs),
+        "human_action": _human_action(feature, stages, runs, info),
         "code_index": _code_index(info),
     }
 

@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any
 
 from dridh.common.redaction import redact
+from dridh.executor.policy import per_test_results
 
 LABEL = "io.dridh"
 SETUP_FAILED_EXIT = 97  # the container's setup lines failed: the tests never ran
@@ -177,7 +178,7 @@ async def cleanup_stale(workspace_id: str, *, run_id: str | None = None) -> dict
 
 async def run_in_container(plan: ContainerPlan, worktree: Path, *, timeout: float) -> dict[str, Any]:
     """Start the environment, run the tests, clean up. Returns test evidence plus a ``containers`` record."""
-    names, started = plan.names, time.monotonic()
+    names, started, wall_started = plan.names, time.monotonic(), time.time()
     record: dict[str, Any] = {"mode": "docker", "image": plan.image, "network": names["network"], "container": names["container"],
                               "compose_project": names["project"] if plan.compose_file else None,
                               "compose_file": plan.compose_file.name if plan.compose_file else None, "events": []}
@@ -227,7 +228,8 @@ async def run_in_container(plan: ContainerPlan, worktree: Path, *, timeout: floa
                                            "did not run; check the container's network access or execution.containers.setup): " + out[-600:])
         record["status"] = "PASSED" if code == 0 else "FAILED"
         return {"command": plan.command, "passed": code == 0, "exit_code": None if timed_out else code, "timed_out": timed_out,
-                "output": str(redact(out.strip()))[-MAX_OUTPUT_CHARS:], "containers": record}
+                "output": str(redact(out.strip()))[-MAX_OUTPUT_CHARS:], "containers": record,
+                "test_results": per_test_results(out, worktree, wall_started)}
     finally:
         if plan.compose_file is not None:
             code, _ = await _docker("compose", "-p", names["project"], "-f", str(plan.compose_file), "down", "-v", "--remove-orphans", "--timeout", "10", timeout=180)
