@@ -80,3 +80,16 @@ def test_a_stale_code_index_is_flagged(info):
     (root / "shop.py").write_text("def tax(x):\n    return x * 2\n")
     section = collect(info)["code_reacher"]
     assert section["stale"] is True and "dridh index" in section["recovery"]
+
+
+def test_usage_is_reported_from_the_usage_log(info):
+    from dridh.observability.usage import record_usage
+
+    assert collect(info)["usage"]["recorded"] is False and "no agent runs recorded yet" in render(collect(info))
+    record_usage(info.project_root, agent="dridh/executor", model="claude-agent/haiku#low", session_id="ses_obs_0001", title="Dridh Executor ST-1.1",
+                 outcome="OK", duration_seconds=2.0, usage={"steps": 2, "input": 1200, "output": 300, "reasoning": 0, "cache_read": 5000, "cache_write": 0, "cost": 0.0123},
+                 resumed=False)
+    usage = collect(info)["usage"]
+    assert usage["invocations"] == 1 and usage["total_tokens"] == 6500 and usage["by_stage"]["executor"]["cost"] == 0.0123
+    text = render(collect(info))
+    assert "6,500 tokens" in text and "claude-agent/haiku#low" in text and "$0.0123" in text

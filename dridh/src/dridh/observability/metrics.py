@@ -14,6 +14,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 import dridh
+from dridh.observability.usage import read_usage, summarise
 from dridh.state.store import StateStore
 from dridh.workspace.layout import WorkspaceInfo
 
@@ -128,6 +129,10 @@ def collect(info: WorkspaceInfo) -> dict[str, Any]:
                 report[name] = build(connection, info.workspace_id, now)
             except sqlite3.Error as exc:
                 report[name] = {"unavailable": f"{type(exc).__name__}: {str(exc)[:120]}"}
+    try:  # token and cost accounting comes from the usage log, not from SQLite
+        report["usage"] = summarise(read_usage(info.project_root))
+    except (OSError, ValueError) as exc:
+        report["usage"] = {"unavailable": f"{type(exc).__name__}: {str(exc)[:120]}"}
     _flag_stale_index(report, info)
     return report
 
@@ -172,4 +177,16 @@ def render(report: dict[str, Any]) -> str:
     section("Reviews", "unavailable" if "unavailable" in rv else f"pending {rv['pending']}, approved {rv['approved']}, stale documents {rv['stale_documents']}")
     jev = report["jev"]
     section("Jev", "unavailable" if "unavailable" in jev else f"evaluations {jev['evaluations']}, fallbacks {jev['fallbacks']}")
+    usage = report.get("usage") or {}
+    if "unavailable" in usage:
+        section("Usage", "unavailable")
+    elif not usage.get("recorded"):
+        section("Usage", "no agent runs recorded yet")
+    else:
+        def line(name: str, b: dict[str, Any]) -> str:
+            return (f"{name}: {b['invocations']} runs ({b['failed']} failed), {b['total_tokens']:,} tokens "
+                    f"(in {b['input']:,}, out {b['output']:,}, reasoning {b['reasoning']:,}, cache read {b['cache_read']:,}, "
+                    f"cache write {b['cache_write']:,}), ${b['cost']:.4f}, {b['duration_seconds']:.0f}s")
+        section("Usage", "\n  ".join([line("all agent runs", usage), *(line(name, b) for name, b in usage["by_stage"].items()),
+                                       *(line(name, b) for name, b in usage["by_model"].items())]))
     return "\n".join(lines)
