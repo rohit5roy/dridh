@@ -3,6 +3,13 @@
 Code Reacher was run with the real local embedding model (FastEmbed 0.9.1, `BAAI/bge-small-en-v1.5`, 384 dimensions,
 sqlite-vec loaded) on two public repositories it had never seen, on a 4-CPU Linux machine.
 
+> **Since 0.9.0rc4** Code Reacher uses `thenlper/gte-small` (384 dimensions, MIT) and embeds each class, function and
+> method with its doc comment and the start of its code, not only its name and signature. On a CodeSearchNet benchmark
+> (Python and Java, 200 queries each) the right method came first for 87.5% and 83.5% of queries. The richer text makes
+> a full index about 2.6 times slower (a 1,414-entity project: 52 s instead of 20 s), so the timings below are lower
+> bounds for a full index today; updating after an edit still embeds only what changed. An index built by an earlier
+> release is rebuilt automatically. The numbers below were not re-measured.
+
 | | Django (`django/django`, shallow clone) | Shopizer (`shopizer-ecommerce/shopizer`) |
 |---|---|---|
 | Languages | Python, JavaScript | Java (Spring) |
@@ -14,8 +21,9 @@ sqlite-vec loaded) on two public repositories it had never seen, on a 4-CPU Linu
 | Re-index after editing one file | 7.8 s (1 file parsed, 41 vectors) | n/a |
 | API endpoints found | n/a | 329 Spring endpoints |
 
-The model is about 65 MB. Releases from 0.9.0rc1 on ship it as `dridh-embedding-model.tar.gz`, which the installer
-checks and unpacks into `~/.cache/dridh/fastembed`; without it, FastEmbed downloads it once from `huggingface.co`.
+The model measured here was about 65 MB; the current one is about 130 MB (78 MB compressed). Releases from 0.9.0rc1 on
+ship the model as `dridh-embedding-model.tar.gz`, which the installer checks and unpacks into `~/.cache/dridh/fastembed`;
+without it, Dridh downloads it once from `huggingface.co`.
 
 ## Search quality
 
