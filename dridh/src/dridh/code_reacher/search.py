@@ -11,7 +11,7 @@ import sqlite3
 from typing import Any
 
 from dridh.code_reacher.embeddings import EmbeddingProvider, VectorStore, default_provider, describe, split_identifier, vector_freshness
-from dridh.code_reacher.indexer import require_index
+from dridh.code_reacher.indexer import index_freshness, require_index
 from dridh.common.errors import DridhError, ErrorCode
 from dridh.state.store import StateStore
 from dridh.workspace.layout import WorkspaceInfo
@@ -19,6 +19,8 @@ from dridh.workspace.layout import WorkspaceInfo
 MAX_DEPTH = 5
 MAX_RESULTS = 50
 _RRF_K = 60
+CHANGED_NOTE = ("Files changed since the code was indexed, so new or edited code may be missing and line numbers may have moved. "
+                "The OpenCode panel re-indexes on its own; otherwise run code_reacher.index (or `dridh index`).")
 STALE_NOTE = ("The code was embedded with an older search model or text, so only full-text matches are returned. "
               "Re-index (code_reacher.index, or `dridh index`) to rebuild the vectors.")
 
@@ -106,7 +108,11 @@ class CodeSearch:
                     results.append({**_entity_dict(row), "matched_by": matched[entity_id], "score": round(scores[entity_id], 6)})
                 if len(results) >= limit:
                     break
-        return {"query": query, "index": {"run_id": run["id"], "source_sha": run["source_sha"]}, "vector": vector_info, "results": results}
+        index: dict[str, Any] = {"run_id": run["id"], "source_sha": run["source_sha"]}
+        if index_freshness(self.workspace)["changed"]:
+            index["code_changed"] = True
+            index["note"] = CHANGED_NOTE
+        return {"query": query, "index": index, "vector": vector_info, "results": results}
 
     # ------------------------------------------------------------------ symbol
 
@@ -222,7 +228,7 @@ class CodeSearch:
 
     # ------------------------------------------------------------------ status
 
-    def status(self) -> dict[str, Any]:
+    def status(self, *, check_changes: bool = True) -> dict[str, Any]:
         with self._store() as store:
             connection = store.read()
             run = connection.execute(
@@ -250,5 +256,6 @@ class CodeSearch:
                 "embeddings": [{"model": r[0].split("+")[0], "text": (r[0].split("+") + [""])[1] or None, "dimensions": r[1], "entities": r[2]}
                                for r in embedded],
                 "vectors_stale": vector_freshness(connection, self.workspace.workspace_id)["stale"],
+                **({"code_changed": index_freshness(self.workspace)["changed"]} if check_changes else {}),
                 "sqlite_vec": vec,
             }

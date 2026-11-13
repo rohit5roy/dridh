@@ -141,3 +141,17 @@ state` reports `code_index.vectors_stale`, and the panel re-indexes the folder i
 OpenCode session, so a failure is never retried in a loop). It shows "Code search was improved. Re-indexing the code in
 the background." and, when done, "Code search is up to date (N files re-indexed).", with the usual spinner and progress
 in between. Until then, lookups return full-text matches and say why (`vector.stale`).
+
+## Keeping the index current
+
+Code that changes outside Dridh (an editor, `git pull`, another tool) is indexed without being asked. Every refresh
+(5 s), `dridh ui state` compares a fingerprint of the indexed folder's source files (path, size and modification time;
+no file is read) with the one taken when it was indexed, and reports `code_index.code_changed`. Once the fingerprint
+holds still for one refresh, the panel runs `dridh index --if-changed` in the background: only new and changed files
+are parsed and embedded, deleted ones are removed, and calls are re-linked. A routine update shows the spinner, not a
+toast; a failure shows a toast once and is retried only after the files change again.
+
+Dridh's own changes do not trigger this: delivery indexes each story it merges. During delivery the index follows the
+feature's integration worktree, so the check watches the folder the index was built from and never swaps it for the
+person's checkout. Index runs are serialised by a lock, so the panel, the Coordinator and delivery never index at the
+same time. Lookups made while files have changed say so (`index.code_changed`).

@@ -67,6 +67,27 @@ def discover(root: Path) -> tuple[list[SourceFile], list[Skipped]]:
     return found, skipped
 
 
+def change_fingerprint(root: Path) -> str:
+    """A cheap fingerprint of the files indexing would look at: the path, size and modification time of every file in a
+    supported language, under the same directory rules as ``discover``. Only ``stat`` is used (no file is read), so it is
+    cheap enough to check every few seconds. Saving, creating, deleting or renaming source files changes it."""
+    root = root.resolve()
+    digest = hashlib.sha256()
+    for directory, subdirectories, names in os.walk(root, followlinks=False):
+        subdirectories[:] = sorted(name for name in subdirectories if name not in EXCLUDED_DIRECTORIES and not name.endswith(".egg-info"))
+        for name in sorted(names):
+            absolute = Path(directory) / name
+            relative = absolute.relative_to(root).as_posix()
+            if language_for(relative) is None:
+                continue
+            try:
+                info = absolute.lstat()
+            except OSError:  # removed while walking
+                continue
+            digest.update(f"{relative}\0{info.st_size}\0{info.st_mtime_ns}\n".encode())
+    return digest.hexdigest()[:40]
+
+
 def _git(root: Path, *args: str) -> str | None:
     try:
         completed = subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True, timeout=20, check=False)  # noqa: S603, S607

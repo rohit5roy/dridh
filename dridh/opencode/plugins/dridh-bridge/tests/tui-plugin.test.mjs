@@ -72,7 +72,8 @@ test("the TUI follows OpenCode to another folder (/cd) instead of keeping the on
 
 test("setting up an existing codebase indexes it in the background, with progress in the status line", () => {
   assert.match(source, /if \(mode === "existing"\) startIndex\(\)/, "an existing codebase is indexed right after setup")
-  assert.match(source, /spawn\(bin\(\), \["index", "--progress", "--json", "--project", folder\]/, "dridh index runs beside OpenCode, not in the terminal")
+  assert.match(source, /const args = \["index", "--progress", "--json", "--project", folder,/, "dridh index runs beside OpenCode, not in the terminal")
+  assert.match(source, /spawn\(bin\(\), args, \{ cwd: folder/)
   assert.ok(!/onTerminal\([^)]*"index"/.test(source), "indexing no longer takes over the terminal")
   assert.match(source, /event\?\.progress === "files" \|\| event\?\.progress === "embeddings"/, "progress lines feed the status line")
   assert.ok(source.includes('const what = job.phase === "files" ? "indexing" : "embedding"') && source.includes("${what}${count}"), "the status line shows how far indexing is")
@@ -84,6 +85,15 @@ test("vectors from an older search model or text are rebuilt in the background, 
   assert.match(source, /reindexed\.add\(folder\)[\s\S]{0,300}startIndex\("upgrade"\)/, "remembered before starting, so a failure is not retried in a loop")
   assert.match(source, /Code search was improved\. Re-indexing the code in the background\./, "the user is told why indexing started")
   assert.match(source, /why === "upgrade" \? `Code search is up to date/, "and when it is done")
+})
+
+test("code changed outside Dridh is re-indexed in the background once the files hold still", () => {
+  assert.match(source, /else if \(next\?\.code_index\?\.code_changed\)/, "after the upgrade check")
+  assert.match(source, /if \(seen === fingerprint && !indexing\(\) && failedFingerprint\.get\(folder\) !== fingerprint\) startIndex\("changes", fingerprint\)/,
+    "only when the fingerprint is the same as at the previous refresh, nothing is indexing and that fingerprint did not already fail")
+  assert.match(source, /why === "changes" \? \["--if-changed"\] : \[\]/, "it updates the folder the index was built from, and only when something changed")
+  assert.match(source, /if \(why === "changes"\) return/, "a routine update shows the spinner, not a toast")
+  assert.match(source, /if \(why === "changes"\) failedFingerprint\.set\(folder, fingerprint\)/, "a failure is not retried in a loop")
 })
 
 test("before the first feature the TUI shows the setup steps and one next action", () => {
