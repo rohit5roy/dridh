@@ -704,6 +704,8 @@ def tui_smoke_step() -> None:
 
 def prepare_tui_review(project: Path) -> dict[str, Any]:
     """Give the seeded project an open, partly checked review so checklist UI has meaningful content."""
+    from planner_test_helpers import IDEATOR_SESSION
+
     from dridh.ideator.service import CHECKLIST, IdeatorService
     from dridh.ledger.drafts import LEDGER_PATH, add_drafts
     from dridh.ledger.flows import approved_flows, story_flows
@@ -711,7 +713,6 @@ def prepare_tui_review(project: Path) -> dict[str, Any]:
     from dridh.state.reviews import ReviewRepository
     from dridh.state.store import StateStore
     from dridh.workspace.layout import open_workspace
-    from planner_test_helpers import IDEATOR_SESSION
 
     info = open_workspace(project)
     with StateStore(info.state_db, info.workspace_id) as store, store.transaction() as connection:
