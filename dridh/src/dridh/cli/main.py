@@ -32,6 +32,7 @@ from dridh.document_contracts.markdown import parse_tables, plain
 from dridh.document_contracts.validator import (
     H_LEDGER,
     LDG_ID,
+    NO_APPROVER,
     LEDGER_APPROVAL_REQUIRED,
     STANDARDS_VERSION,
     LedgerDecision,
@@ -652,6 +653,14 @@ def feature_list(project: str = PROJECT_OPTION) -> None:
     """List this workspace's features and their stages."""
 
     _emit({"features": [{k: item[k] for k in ("slug", "name", "mode", "stage", "status")} for item in _lifecycle(project).list_features()]}, "feature-list")
+
+
+@feature_app.command("check-delivery")
+def feature_check_delivery(project: str = PROJECT_OPTION) -> None:
+    """Can the feature leave execution? Every approved flow proven by a passing test or explained in the approved ledger."""
+    from dridh.coordinator.delivery_check import delivery_readiness
+
+    _emit(delivery_readiness(_workspace(project)))
 
 
 @feature_app.command("status")
@@ -1702,11 +1711,22 @@ def _ledger_decide(ledger_id: str, decision: str, reviewer: str, reason: str, le
     if decision == "reject" and not reason.strip():
         raise DridhError(ErrorCode.VALIDATION_FAILED, "--reason is required to reject", recovery="Explain the rejection.")
 
-    target = Path(ledger_file)
+    from dridh.ledger.drafts import ledger_file as default_ledger_file
+
+    target = Path(ledger_file) if ledger_file else default_ledger_file(_workspace(project))
     if not target.is_file():
         raise DridhError(ErrorCode.VALIDATION_FAILED, f"Ledger file not found: {target}")
     content = target.read_text(encoding="utf-8")
     row = next((r for t in parse_tables(content) if t.header == H_LEDGER for r in t.rows if plain(r.cells[0]) == ledger_id), None)
+    if row is not None and decision == "approve" and plain(row.cells[7]) in NO_APPROVER:
+        # A draft Dridh wrote has no approver yet: the approving human's name goes into the entry before it is hashed.
+        lines = content.split("\n")
+        index = next(i for i, line in enumerate(lines) if line.startswith("|") and plain(line.strip("|").split("|")[0]) == ledger_id)
+        cells = [cell.strip() for cell in lines[index].strip().strip("|").split("|")]
+        cells[7] = reviewer.strip().replace("|", "/")
+        proposed = "\n".join([*lines[:index], "| " + " | ".join(cells) + " |", *lines[index + 1:]])
+    else:
+        proposed = None
     if row is None:
         raise DridhError(ErrorCode.VALIDATION_FAILED, f"{ledger_id} is not in the Table 14 ledger", recovery="Check the ledger ID.")
     status = plain(row.cells[2])
@@ -1715,6 +1735,8 @@ def _ledger_decide(ledger_id: str, decision: str, reviewer: str, reason: str, le
             ErrorCode.VALIDATION_FAILED,
             f"{ledger_id} is {status}; only DEVIATED, NOT_DONE and WONT_DO entries need a human decision",
         )
+    if proposed is not None:
+        content = proposed
     entry_sha = ledger_entry_revision(content, ledger_id)
     document_sha = content_revision(content)
 
@@ -1724,6 +1746,8 @@ def _ledger_decide(ledger_id: str, decision: str, reviewer: str, reason: str, le
         f"Entry SHA-256: {entry_sha}\nDocument SHA-256: {document_sha}",
     )
     workspace = _workspace(project)
+    if proposed is not None:
+        target.write_text(content, encoding="utf-8")
     with StateStore(workspace.state_db, workspace.workspace_id) as store:
         with store.transaction() as connection:
             seq = record_ledger_decision(
@@ -1747,17 +1771,23 @@ def _ledger_decide(ledger_id: str, decision: str, reviewer: str, reason: str, le
             "audit_seq": seq,
         }
     )
+    try:  # keep the queryable rows current; an import problem is reported by `dridh ledger reconcile`, never hidden
+        from dridh.ledger.service import LedgerService
+
+        LedgerService(workspace).import_ledger(str(target))
+    except DridhError:
+        pass
 
 
 _REVIEWER_HELP = "Human reviewer name. This is attribution metadata, not authentication."
-_LEDGER_FILE_HELP = "Path to LEDGER.md."
+_LEDGER_FILE_HELP = "Path to LEDGER.md (default: the workspace's .opencode/dridh/documents/LEDGER.md)."
 
 
 @ledger_app.command("approve")
 def ledger_approve(
     ledger_id: str,
     reviewer: str = typer.Option(..., "--reviewer", help=_REVIEWER_HELP),
-    ledger_file: str = typer.Option(..., "--ledger-file", help=_LEDGER_FILE_HELP),
+    ledger_file: str = typer.Option("", "--ledger-file", help=_LEDGER_FILE_HELP),
     project: str = PROJECT_OPTION,
 ) -> None:
     """Approve a deviation. Requires an interactive terminal and a typed confirmation."""
@@ -1770,12 +1800,38 @@ def ledger_reject(
     ledger_id: str,
     reviewer: str = typer.Option(..., "--reviewer", help=_REVIEWER_HELP),
     reason: str = typer.Option(..., "--reason", help="Why the deviation is rejected."),
-    ledger_file: str = typer.Option(..., "--ledger-file", help=_LEDGER_FILE_HELP),
+    ledger_file: str = typer.Option("", "--ledger-file", help=_LEDGER_FILE_HELP),
     project: str = PROJECT_OPTION,
 ) -> None:
     """Reject a deviation. Requires an interactive terminal and a typed confirmation."""
 
     _ledger_decide(ledger_id, "reject", reviewer, reason, ledger_file, project)
+
+
+@ledger_app.command("draft")
+def ledger_draft(
+    story: str = typer.Option(..., "--story", help="A BLOCKED story whose flows will not be built."),
+    reason: str = typer.Option(..., "--reason", help="Why its flows are not being built."),
+    project: str = PROJECT_OPTION,
+) -> None:
+    """Record every flow of a BLOCKED story as NOT_DONE (drafts awaiting approval). Writes LEDGER.md; approves nothing."""
+    from dridh.ledger.drafts import add_drafts
+    from dridh.ledger.flows import story_flows
+
+    workspace = _workspace(project)
+    if not reason.strip():
+        raise DridhError(ErrorCode.VALIDATION_FAILED, "--reason is required", recovery="Say why the story's flows are not being built.")
+    with StateStore(workspace.state_db, workspace.workspace_id) as store:
+        connection = store.read()
+        row = connection.execute("SELECT status FROM story WHERE workspace_id=? AND story_id=?", (workspace.workspace_id, story)).fetchone()
+        flows = story_flows(connection, workspace.workspace_id).get(story, [])
+    if row is None:
+        raise DridhError(ErrorCode.VALIDATION_FAILED, f"{story} is not a planned story.")
+    if row["status"] != "BLOCKED":
+        raise DridhError(ErrorCode.INVALID_TRANSITION, f"{story} is {row['status']}; only a BLOCKED story's flows can be recorded as not done.",
+                         recovery="A story that completes reports its own flows; rework or block it first.")
+    _emit(add_drafts(workspace, [{"flow": flow, "status": "NOT_DONE", "story": story, "actual": "Not built: the story is blocked.",
+                                  "reason": reason.strip(), "source": "a human (`dridh ledger draft`)"} for flow in flows]))
 
 
 @ledger_app.command("import")

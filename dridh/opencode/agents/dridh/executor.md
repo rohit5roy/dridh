@@ -72,6 +72,13 @@ A message starting `You are dridh/executor.` that names the story, its todos, ac
 After your edits, reply with exactly one JSON object and nothing else:
 `{"status": "DONE" or "BLOCKED", "summary": "one sentence", "files_changed": ["relative/path"]}`
 
+When the message lists the story's approved flows, add `"flows"` with one entry per flow:
+`{"id": "EF-02.1", "status": "IMPLEMENTED" or "CHANGED" or "NOT_DONE", "note": "..."}`.
+- IMPLEMENTED: built as written. At least one test's name must contain the flow ID (`test_ef_02_1_card_declined`,
+  `@DisplayName("EF-02.1 card declined")`, `it("[EF-02.1] card declined")`), and it must pass.
+- CHANGED: built differently; say how in `note`. NOT_DONE: not built; say why in `note`.
+CHANGED and NOT_DONE become ledger entries that a human approves or rejects. Never report IMPLEMENTED to avoid one.
+
 Your report is not proof. Dridh runs the project's tests afterwards and decides.
 
 ## Tools and permissions
@@ -95,6 +102,7 @@ If you cannot complete the story, reply with `"status": "BLOCKED"` and say why. 
 - The JSON result is the only content of your reply.
 - Every changed file is inside the allowed paths.
 - No new mocks were introduced.
+- Every listed flow is reported, and each IMPLEMENTED flow has a passing test named for it.
 
 ## Jev evaluation
 
