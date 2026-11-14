@@ -164,3 +164,13 @@ time); reviews, deviations and delivery; the code index and the bridge. The rows
 by Python, so they are the same tables `dridh observe` prints in a terminal. The overview shows a one-line summary
 (stories done, repairs, agent runs, tokens and cost). The Coordinator's own conversation runs in OpenCode, not through
 Dridh, so it is not counted; the table says so and points to `opencode stats --project .`.
+
+## Coverage
+
+`/dridh-coverage`, the `v` key in the Dridh panel, or the panel's Coverage tab shows the completion matrix: one row per
+approved flow, grouped by use case, with the story that owns it, its state (proven, deviation approved or awaiting you,
+not proven, story in review or not started, and so on), the test that proves it or the ledger entry that explains it,
+and the files the story's code is in. `j`/`k` select a flow and show its text, approved contract, tests, code and ledger
+note; `a` approves a deviation that awaits a decision, on the real terminal with the typed confirmation. The rows come
+from `dridh ui coverage`, the same matrix `dridh coverage` prints, built by `coordinator/coverage.py` with the same rules
+as the delivery check. The overview shows a one-line summary once stories exist.

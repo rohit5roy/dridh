@@ -230,6 +230,19 @@ def _metrics_summary(info: WorkspaceInfo) -> str:
     return summary({"execution": {"stories": stories, "repairs": repairs}, "usage": usage})
 
 
+def _coverage_summary(info: WorkspaceInfo) -> str:
+    """One line for the overview once stories exist: flows proven or explained, and what still needs attention."""
+    try:
+        with StateStore(info.state_db, info.workspace_id) as store:
+            if store.read().execute("SELECT 1 FROM story WHERE workspace_id=? LIMIT 1", (info.workspace_id,)).fetchone() is None:
+                return ""
+        from dridh.coordinator.coverage import coverage
+
+        return coverage(info)["summary"]
+    except Exception:  # noqa: BLE001 - a summary line must never break the panel
+        return ""
+
+
 def workspace_state(info: WorkspaceInfo, feature_ref: str | None = None) -> dict[str, Any]:
     from dridh.coordinator.lifecycle import FeatureLifecycle
 
@@ -264,6 +277,7 @@ def workspace_state(info: WorkspaceInfo, feature_ref: str | None = None) -> dict
         "human_action": _human_action(feature, stages, runs, info),
         "code_index": _code_index(info),
         "metrics": _metrics_summary(info),
+        "coverage": _coverage_summary(info),
     }
 
 

@@ -2330,6 +2330,18 @@ def _take_global_json(args: list[str]) -> list[str]:
     return args if accepts else [a for a in args if a != "--json"]
 
 
+@app.command("coverage")
+def coverage_command(
+    json_output: bool = typer.Option(False, "--json", help="Machine-readable matrix."),
+    project: str = PROJECT_OPTION,
+) -> None:
+    """The completion matrix: every approved flow with its story, state, proof or deviation, and code."""
+    from dridh.coordinator.coverage import coverage, render
+
+    report = coverage(_workspace(project))
+    typer.echo(json.dumps(report, indent=2, sort_keys=True, default=str) if json_output else render(report))
+
+
 @app.command("observe")
 def observe(
     json_output: bool = typer.Option(False, "--json", help="Machine-readable report."),
@@ -2522,6 +2534,16 @@ def ui_metrics(project: str = PROJECT_OPTION) -> None:
     from dridh.ui.state import dump
 
     typer.echo(dump(build(collect(_workspace(project)))))
+
+
+@ui_app.command("coverage")
+def ui_coverage(project: str = PROJECT_OPTION) -> None:
+    """The completion matrix for the panel's Coverage tab, with column widths so the use cases line up."""
+    from dridh.coordinator.coverage import coverage, widths
+    from dridh.ui.state import dump
+
+    report = coverage(_workspace(project))
+    typer.echo(dump({**report, "widths": widths(report)}))
 
 
 @ui_app.command("lot")
