@@ -24,6 +24,7 @@ from typing import Any
 
 from dridh.common.redaction import redact
 from dridh.common.subprocess import ProcessExecutionError, run_process
+from dridh.observability.usage import record_usage, usage_from_stdout
 from dridh.workspace.paths import validate_workspace_root
 
 _SESSION_ID = re.compile(r"^ses_[A-Za-z0-9_-]{8,}$")
@@ -117,6 +118,7 @@ class AgentRunResult:
     events: tuple[dict[str, Any], ...] = field(default_factory=tuple)
     stderr: str = ""
     resumed: bool = False
+    usage: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -129,6 +131,7 @@ class AgentRunResult:
             "event_count": len(self.events),
             "stderr": self.stderr,
             "resumed": self.resumed,
+            "usage": dict(self.usage),
         }
 
 
@@ -439,6 +442,19 @@ class OpenCodeRunner:
                 details=tuple(exc.details),
             ) from None
 
+        usage = usage_from_stdout(process.stdout)
+        try:
+            result = self._result(process, agent=agent, prompt=prompt, session_id=session_id, usage=usage)
+        except AgentRunError as exc:
+            record_usage(self.workspace_root, agent=agent, model=model, session_id=exc.session_id or session_id, title=title,
+                         outcome=exc.code.value, duration_seconds=process.duration_seconds, usage=usage, resumed=session_id is not None)
+            raise
+        record_usage(self.workspace_root, agent=agent, model=model, session_id=result.session_id, title=title, outcome="OK",
+                     duration_seconds=process.duration_seconds, usage=usage, resumed=result.resumed)
+        return result
+
+    def _result(self, process: Any, *, agent: str, prompt: str, session_id: str | None, usage: dict[str, Any]) -> AgentRunResult:
+        """Turn a finished OpenCode process into a result, or raise the classified failure."""
         if process.exit_code != 0:
             known = _classify_known_failure(process.stdout, process.stderr)
             diagnostic = self._redact_diagnostic(_provider_diagnostic(process.stdout, process.stderr))
@@ -530,6 +546,7 @@ class OpenCodeRunner:
             events=tuple(events),
             stderr=str(redact(process.stderr[-4000:])),
             resumed=session_id is not None,
+            usage=usage,
         )
 
     def run_sync(self, **kwargs: Any) -> AgentRunResult:

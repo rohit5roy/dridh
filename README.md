@@ -90,7 +90,9 @@ The plugin adds Dridh to OpenCode's terminal interface without modifying OpenCod
 
 - **Sidebar** (in a session): stage, documents and their reviews, the open checklist, the next step, clickable actions.
 - **Panel** beside the conversation: `/dridh` (overview), `/dridh-review [use|tdd|plan]` (document reviewer),
-  `/dridh-checklist`, `/dridh-lot` (execution lots with diffs). `f` full screen, `esc` closes it. OpenCode shows either
+  `/dridh-checklist`, `/dridh-lot` (execution lots with diffs), `/dridh-coverage` (the completion matrix: every
+  approved flow with its story, state, test proof or deviation, and code), `/dridh-metrics` (tables of stories, repairs,
+  model tokens and cost). `f` full screen, `esc` closes it. OpenCode shows either
   its sidebar or a panel, not both.
 - **Reviewer**: documents rendered with glow; Mermaid flowcharts, sequence and ER diagrams drawn as text; `r` shows the
   stored source.
@@ -102,7 +104,9 @@ The plugin adds Dridh to OpenCode's terminal interface without modifying OpenCod
 
 | | |
 |---|---|
-| Where am I? | `dridh feature status`, `dridh execute status`, `dridh feature check-delivery`, `dridh observe` |
+| Where am I? | `dridh feature status`, `dridh execute status`, `dridh feature check-delivery` |
+| Is every flow done? | `/dridh-coverage` in OpenCode (or `v` in the Dridh panel), `dridh coverage` in a terminal: each approved flow, its story, whether a passing test proves it or an approved deviation explains it, and its code |
+| How is it going? | `/dridh-metrics` in OpenCode (or `m` in the Dridh panel), `dridh observe` in a terminal: stories, repairs, model tokens and cost by stage, model and story, reviews, deviations, code index |
 | Search your code | `dridh index`, `dridh code search "<query>"`, `dridh code for <story>` (in OpenCode the index is updated on its own when files change) |
 | Deviations | `dridh ledger approve LDG-NN --reviewer <name>`, `dridh ledger reject`, `dridh ledger draft --story <blocked story>` |
 | Check the setup | `dridh doctor` |

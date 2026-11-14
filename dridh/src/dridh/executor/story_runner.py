@@ -64,6 +64,15 @@ def flow_rules(flows: list[dict[str, Any]]) -> str:
     )
 
 
+def contract_section(contract: list[str]) -> str:
+    """The approved API/event references for the story, copied from the approved design (empty when there are none)."""
+    if not contract:
+        return ""
+    listed = "\n".join(f"- {item}" for item in contract)
+    return ("Approved contract for this story (copied from the approved design; implement these names and parameters exactly; "
+            f"if a todo or acceptance criterion disagrees, the contract wins):\n{listed}\n")
+
+
 def implementation_prompt(story: dict[str, Any], allowed: list[str], feedback: list[str]) -> str:
     def bullets(items: list[str]) -> str:
         return "\n".join(f"- {item}" for item in items) or "- (none)"
@@ -71,7 +80,8 @@ def implementation_prompt(story: dict[str, Any], allowed: list[str], feedback: l
     text = (
         f"You are {AGENT}. Implement story {story['story_id']} of the approved plan inside this worktree.\n"
         f"Title: {story['title']}\nComponent: {story['component_id']}\nDescription: {story.get('description', '')}\n"
-        f"Todos:\n{bullets(story['todos'])}\nAcceptance criteria:\n{bullets(story['acceptance_criteria'])}\n"
+        + contract_section(story.get("approved_contract") or [])
+        + f"Todos:\n{bullets(story['todos'])}\nAcceptance criteria:\n{bullets(story['acceptance_criteria'])}\n"
         f"Definition of done:\n{bullets(story['definition_of_done'])}\n"
         f"You may create or change files only under: {', '.join(allowed)}.\n"
         "Write tests that exercise real dependencies. Do not introduce mocks, stubs or fakes of the system under test or its "

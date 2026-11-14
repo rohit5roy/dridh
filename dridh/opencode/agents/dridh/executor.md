@@ -65,7 +65,7 @@ Implement the story's todos so its acceptance criteria and definition of done ho
 
 ## Inputs
 
-A message starting `You are dridh/executor.` that names the story, its todos, acceptance criteria, definition of done and the paths you may change. Your working directory is the story's own Git worktree.
+A message starting `You are dridh/executor.` that names the story, its todos, acceptance criteria, definition of done and the paths you may change. When it has an "Approved contract for this story" section, implement those names and parameters exactly: it is copied from the approved design and wins over any todo or acceptance criterion that disagrees. Your working directory is the story's own Git worktree.
 
 ## Outputs
 

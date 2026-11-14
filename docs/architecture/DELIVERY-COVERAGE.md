@@ -60,3 +60,8 @@ records the decision bound to the entry's hash. Editing an approved entry makes 
 Each blocker is named, for example "BE-01.1 (ST-1.1) is not proven by a passing test named for it". The OpenCode panel
 shows pending approvals as the next action. Stories delivered before flow reports existed have no evidence: they block
 with a message saying how to re-run the story or record the flow in the ledger.
+
+## Seeing it
+
+`dridh coverage` (or the Coverage tab in the OpenCode panel, `/dridh-coverage`) shows every approved flow with its
+story, its state, the test that proves it or the ledger entry that explains it, and its code, grouped by use case.

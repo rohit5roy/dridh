@@ -476,7 +476,7 @@ export default Plugin.define({
 
     // ------------------------------------------------------------------ where a view opens
 
-    type View = { name: "overview" | "document" | "checklist" | "lot"; data?: Record<string, any> }
+    type View = { name: "overview" | "document" | "checklist" | "lot" | "metrics" | "coverage"; data?: Record<string, any> }
     const [panelView, setPanelView] = createSignal<View>({ name: "overview" })
 
     /**
@@ -563,6 +563,8 @@ export default Plugin.define({
         if (key.name === "n") return void next()
         if (key.name === "c") return void checklist()
         if (key.name === "a") return void approveDocument()
+        if (key.name === "m") return show({ name: "metrics" })
+        if (key.name === "v") return show({ name: "coverage" })
         const doc = { "1": "use_cases", "2": "design", "3": "plan" }[key.name as "1"]
         if (doc && state()?.documents?.[doc]) return show({ name: "document", data: { stage: doc } })
         if (key.name === "l") {
@@ -605,6 +607,18 @@ export default Plugin.define({
                       </text>
                     )}
                   </For>
+                </box>
+              </Show>
+              <Show when={state()?.coverage}>
+                <box flexDirection="column">
+                  <text fg={c.muted}>COVERAGE</text>
+                  <text>{state().coverage}<span style={{ fg: c.muted }}>{"   v every flow"}</span></text>
+                </box>
+              </Show>
+              <Show when={state()?.metrics}>
+                <box flexDirection="column">
+                  <text fg={c.muted}>SO FAR</text>
+                  <text>{state().metrics}<span style={{ fg: c.muted }}>{"   m all metrics"}</span></text>
                 </box>
               </Show>
               <Show when={feature().blockers?.length && feature().stage !== "COMPLETED"}>
@@ -953,9 +967,130 @@ export default Plugin.define({
     ctx.ui.slot({ append: "home.footer.status", render: () => statusLine() })
     ctx.ui.slot({ append: "prompt.footer.status", render: (input) => <Show when={input.sessionID}>{statusLine(true, input.sessionID)}</Show> })
 
+    // ------------------------------------------------------------------ metrics (observability)
+
+    /** The observability report as tables: features, execution, model usage and cost, reviews and deviations, system.
+     *  The rows are laid out by Python (`dridh ui metrics`), so the panel and `dridh observe` always agree. */
+    function MetricsBody(props: { active: () => boolean }) {
+      const [view, setView] = createSignal<Json>(undefined)
+      const [problem, setProblem] = createSignal<string>()
+      const load = () => busyWith("reading metrics", () => dridhJson(["ui", "metrics"], root())).then((v) => { setView(v); setProblem(undefined) })
+        .catch((e) => setProblem((e as Error).message))
+      void load()
+      let scroll: Json
+      useKeyboard((key) => {
+        if (!props.active()) return
+        if (key.name === "r") return void load()
+        if (scroll && (key.name === "down" || key.name === "j")) return scroll.scrollBy(1)
+        if (scroll && (key.name === "up" || key.name === "k")) return scroll.scrollBy(-1)
+        if (scroll && (key.name === "pagedown" || key.name === "space")) return scroll.scrollBy(20)
+        if (scroll && key.name === "pageup") return scroll.scrollBy(-20)
+      })
+      return (
+        <Show when={view()} fallback={<text fg={problem() ? c.bad : c.muted}>{problem() ?? "Loading…"}</text>}>
+          <box flexDirection="column" flexGrow={1}>
+            <Show when={view().summary}><text><b>{view().summary}</b></text></Show>
+            <scrollbox ref={(r: Json) => (scroll = r)} flexGrow={1}>
+              <box flexDirection="column" gap={1}>
+                <For each={view().tables}>
+                  {(table: Json) => (
+                    <box flexDirection="column">
+                      <text fg={c.accent}><b>{table.title}</b></text>
+                      <For each={table.lines}>{(line: string, i) => <text fg={i() < 2 ? c.muted : c.text}>{line || " "}</text>}</For>
+                      <Show when={table.note}><text fg={c.muted}>{table.note}</text></Show>
+                    </box>
+                  )}
+                </For>
+              </box>
+            </scrollbox>
+            <text fg={c.muted}>j/k scroll · r refresh · same report: dridh observe</text>
+          </box>
+        </Show>
+      )
+    }
+
+    // ------------------------------------------------------------------ coverage (the completion matrix)
+
+    /** Every approved flow with its story, state, proof or deviation and code, grouped by use case (`dridh ui coverage`).
+     *  j/k selects a flow and shows its detail; a deviation that awaits a decision is approved on the real terminal. */
+    function CoverageBody(props: { active: () => boolean; narrow?: boolean }) {
+      const [view, setView] = createSignal<Json>(undefined)
+      const [problem, setProblem] = createSignal<string>()
+      const [index, setIndex] = createSignal(0)
+      const load = () => busyWith("reading coverage", () => dridhJson(["ui", "coverage"], root())).then((v) => { setView(v); setProblem(undefined) })
+        .catch((e) => setProblem((e as Error).message))
+      void load()
+      const rows = () => (view()?.use_cases ?? []).flatMap((g: Json) => g.rows)
+      const selected = () => rows()[Math.min(index(), Math.max(0, rows().length - 1))]
+      const tone = (t: string) => ({ ok: c.ok, warn: c.warn, bad: c.bad } as Record<string, string>)[t] ?? c.muted
+      const cols = () => (props.narrow ? 5 : 6)
+      const cell = (value: string, i: number) => String(value ?? "").padEnd(view()?.widths?.[i] ?? 0)
+      const line = (r: Json) => [r.flow, r.type, r.story, r.label, r.proof, r.code].slice(0, cols())
+      useKeyboard((key) => {
+        if (!props.active()) return
+        if (key.name === "r") return void load()
+        if (key.name === "down" || key.name === "j") return setIndex((i) => Math.min(rows().length - 1, i + 1))
+        if (key.name === "up" || key.name === "k") return setIndex((i) => Math.max(0, i - 1))
+        const row = selected()
+        if (key.name === "a" && row?.detail?.awaiting) {
+          return void (async () => {
+            const name = await reviewer()
+            if (!name) return
+            await onTerminal(`Approve deviation ${row.detail.ledger}`, [`${row.flow}: ${row.proof}`, "Type the confirmation to approve. To reject: dridh ledger reject " + row.detail.ledger + " --reviewer <name> --reason \"...\""],
+              ["ledger", "approve", row.detail.ledger, "--reviewer", name])
+            void load()
+          })()
+        }
+      })
+      return (
+        <Show when={view()} fallback={<text fg={problem() ? c.bad : c.muted}>{problem() ?? "Loading…"}</text>}>
+          <Show when={view().total} fallback={<text fg={c.muted}>No approved flows yet: coverage starts once the use cases are approved.</text>}>
+            <box flexDirection="column" flexGrow={1}>
+              <box flexShrink={0}><text><b>{view().summary}</b></text></box>
+              <box flexShrink={0}><text fg={c.muted}>{"j/k flow · r refresh" + (selected()?.detail?.awaiting ? ` · a approve ${selected().detail.ledger}…` : "") + " · same matrix: dridh coverage"}</text></box>
+              <Show when={selected()}>
+                <box flexDirection="column" border borderColor={c.border} paddingLeft={1} paddingRight={1} flexShrink={0}>
+                  <text><b>{selected().flow}</b><span style={{ fg: c.muted }}>{` ${selected().type} · ${selected().story} (${selected().story_status})`}</span></text>
+                  <text>{selected().detail.text}</text>
+                  <Show when={selected().detail.contract.length}><text fg={c.muted}>contract  <span style={{ fg: c.text }}>{selected().detail.contract.join("; ")}</span></text></Show>
+                  <text fg={c.muted}>tests     <span style={{ fg: c.text }}>{selected().detail.tests.length ? selected().detail.tests.slice(0, 3).join(", ") : "–"}</span></text>
+                  <text fg={c.muted}>code      <span style={{ fg: c.text }}>{selected().detail.code.length ? selected().detail.code.slice(0, 4).join(", ") : "–"}</span></text>
+                  <Show when={selected().detail.ledger}><text fg={c.muted}>ledger    <span style={{ fg: tone(selected().tone) }}>{selected().proof}</span>{selected().detail.note ? `  "${selected().detail.note}"` : ""}</text></Show>
+                </box>
+              </Show>
+              <box flexDirection="column" flexGrow={1} flexShrink={1} minHeight={4}>
+              <scrollbox flexGrow={1}>
+                <box flexDirection="column" gap={1}>
+                  <For each={view().use_cases}>
+                    {(group: Json) => (
+                      <box flexDirection="column">
+                        <text fg={c.accent}><b>{`${group.use_case} ${group.title}`}</b><span style={{ fg: c.muted }}>{`  ·  ${group.done} of ${group.total} done`}</span></text>
+                        <text fg={c.muted}>{"  " + ["Flow", "Type", "Story", "Status", "Proof or deviation", "Code"].slice(0, cols()).map(cell).join("  ")}</text>
+                        <For each={group.rows}>
+                          {(r: Json) => {
+                            const mine = () => selected() === r
+                            const parts = () => line(r).map(cell)
+                            return (
+                              <text fg={mine() ? c.accent : c.text}>{(mine() ? "▸ " : "  ") + parts().slice(0, 3).join("  ") + "  "}
+                                <span style={{ fg: tone(r.tone) }}>{parts()[3]}</span>{"  " + parts().slice(4).join("  ")}</text>
+                            )
+                          }}
+                        </For>
+                      </box>
+                    )}
+                  </For>
+                </box>
+              </scrollbox>
+              </box>
+            </box>
+          </Show>
+        </Show>
+      )
+    }
+
     // ------------------------------------------------------------------ the session panel
 
-    const TABS: [View["name"], string][] = [["overview", "Overview"], ["document", "Document"], ["checklist", "Checklist"], ["lot", "Lots"]]
+    const TABS: [View["name"], string][] = [["overview", "Overview"], ["document", "Document"], ["checklist", "Checklist"], ["lot", "Lots"], ["coverage", "Coverage"], ["metrics", "Metrics"]]
 
     ctx.ui.slot({
       append: "session.panel",
@@ -966,7 +1101,7 @@ export default Plugin.define({
             useKeyboard((key) => {
               if (!input.focused) return
               if (key.name === "escape") return input.close()
-              const tab = { o: "overview", ...(panelView().name === "document" ? {} : { d: "document" }), h: "checklist", ...(panelView().name === "lot" ? {} : { l: "lot" }) }[key.name as "o"] as View["name"] | undefined
+              const tab = { o: "overview", ...(panelView().name === "document" ? {} : { d: "document" }), h: "checklist", ...(panelView().name === "lot" ? {} : { l: "lot" }), m: "metrics", v: "coverage" }[key.name as "o"] as View["name"] | undefined
               if (tab && tab !== panelView().name) {
                 if (tab === "lot") return openLot()
                 if (tab === "document") return show({ name: "document", data: { stage: openReviewKey() ?? action()?.stage_key ?? "design" } })
@@ -985,6 +1120,8 @@ export default Plugin.define({
                 </box>
                 <Show when={panelView().name === "overview"}><OverviewBody active={active} narrow={input.width < 110} /></Show>
                 <Show when={panelView().name === "checklist"}><ChecklistBody stage={panelView().data?.stage} active={active} /></Show>
+                <Show when={panelView().name === "metrics"}><MetricsBody active={active} /></Show>
+                <Show when={panelView().name === "coverage"}><CoverageBody active={active} narrow={input.width < 110} /></Show>
                 <Show when={panelView().name === "document" && panelView().data?.stage} keyed>
                   {(stage: string) => <DocumentBody stage={stage} active={active} width={() => input.width} fullscreen={() => input.toggleFullscreen()} />}
                 </Show>
@@ -1021,6 +1158,8 @@ export default Plugin.define({
     ctx.ui.router.register({ name: "checklist", render: (input) => <Page title="checklist"><ChecklistBody stage={input.data?.stage} active={always} /></Page> })
     ctx.ui.router.register({ name: "document", render: (input) => <Page title="document"><DocumentBody stage={input.data?.stage ?? "use_cases"} active={always} width={() => (ctx.renderer.width ?? 160) - 4} /></Page> })
     ctx.ui.router.register({ name: "lot", render: (input) => <Page title="execution"><LotBody run={input.data?.run} lot={input.data?.lot} active={always} /></Page> })
+    ctx.ui.router.register({ name: "metrics", render: () => <Page title="metrics"><MetricsBody active={always} /></Page> })
+    ctx.ui.router.register({ name: "coverage", render: () => <Page title="coverage"><CoverageBody active={always} /></Page> })
 
     /** A view in the home-screen dialog: the same bodies as the pages, closed with esc or q. */
     function homeView(view: View): Json {
@@ -1029,6 +1168,8 @@ export default Plugin.define({
       if (view.name === "checklist") return <Page title="checklist" close={close}><ChecklistBody stage={view.data?.stage} active={always} /></Page>
       if (view.name === "document") return <Page title="document" close={close}><DocumentBody stage={view.data?.stage ?? "use_cases"} active={always} width={width} /></Page>
       if (view.name === "lot") return <Page title="execution" close={close}><LotBody run={view.data?.run} lot={view.data?.lot} active={always} /></Page>
+      if (view.name === "metrics") return <Page title="metrics" close={close}><MetricsBody active={always} /></Page>
+      if (view.name === "coverage") return <Page title="coverage" close={close}><CoverageBody active={always} /></Page>
       return <Page title="overview" close={close}><OverviewBody active={always} /></Page>
     }
 
@@ -1063,6 +1204,10 @@ export default Plugin.define({
         { id: "dridh.checklist", title: "Dridh: review checklist", group: "Dridh", palette: true, slash: { name: "dridh-checklist" }, run: () => void checklist() },
         { id: "dridh.approve", title: "Dridh: approve the document under review", group: "Dridh", palette: true, slash: { name: "dridh-approve" }, run: () => void approveDocument() },
         { id: "dridh.lot", title: "Dridh: execution lot review", group: "Dridh", palette: true, slash: { name: "dridh-lot" }, run: () => openLot() },
+        { id: "dridh.coverage", title: "Dridh: coverage", description: "Every approved flow with its story, state, proof or deviation, and code",
+          group: "Dridh", palette: true, slash: { name: "dridh-coverage" }, run: () => show({ name: "coverage" }) },
+        { id: "dridh.metrics", title: "Dridh: metrics", description: "Stories, repairs, model usage and cost, reviews, deviations and the code index, as tables",
+          group: "Dridh", palette: true, slash: { name: "dridh-metrics" }, run: () => show({ name: "metrics" }) },
       ],
     } }
 

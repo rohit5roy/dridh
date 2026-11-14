@@ -213,6 +213,36 @@ def _code_index(info: WorkspaceInfo) -> dict[str, Any]:
     return {"vectors_stale": stale, "code_changed": freshness["changed"], "fingerprint": freshness.get("fingerprint")}
 
 
+def _metrics_summary(info: WorkspaceInfo) -> str:
+    """One line for the overview: stories done, repairs, agent runs, tokens and cost. Cheap enough for every refresh
+    (two counts and the usage log); the full report is `dridh observe` or the panel's Metrics tab."""
+    from dridh.observability.tables import summary
+    from dridh.observability.usage import read_usage, summarise
+
+    try:
+        with StateStore(info.state_db, info.workspace_id) as store:
+            connection = store.read()
+            stories = {r[0]: r[1] for r in connection.execute("SELECT status, COUNT(*) FROM story WHERE workspace_id=? GROUP BY status", (info.workspace_id,))}
+            repairs = connection.execute("SELECT COUNT(*) FROM story_attempt WHERE workspace_id=? AND kind='REPAIR'", (info.workspace_id,)).fetchone()[0]
+        usage = summarise(read_usage(info.project_root))
+    except Exception:  # noqa: BLE001 - a summary line must never break the panel
+        return ""
+    return summary({"execution": {"stories": stories, "repairs": repairs}, "usage": usage})
+
+
+def _coverage_summary(info: WorkspaceInfo) -> str:
+    """One line for the overview once stories exist: flows proven or explained, and what still needs attention."""
+    try:
+        with StateStore(info.state_db, info.workspace_id) as store:
+            if store.read().execute("SELECT 1 FROM story WHERE workspace_id=? LIMIT 1", (info.workspace_id,)).fetchone() is None:
+                return ""
+        from dridh.coordinator.coverage import coverage
+
+        return coverage(info)["summary"]
+    except Exception:  # noqa: BLE001 - a summary line must never break the panel
+        return ""
+
+
 def workspace_state(info: WorkspaceInfo, feature_ref: str | None = None) -> dict[str, Any]:
     from dridh.coordinator.lifecycle import FeatureLifecycle
 
@@ -224,7 +254,7 @@ def workspace_state(info: WorkspaceInfo, feature_ref: str | None = None) -> dict
         action = ({"kind": "index", "text": "Index the code: /dridh-index."} if current and current["id"] == "index"
                   else {"kind": "create", "text": "Select Dridh/Coordinator (Shift+Tab) and describe a feature."})
         return {"workspace": str(info.project_root), "mode": info.mode, "feature": None, "features": [],
-                "setup": setup, "human_action": action, "code_index": _code_index(info)}
+                "setup": setup, "human_action": action, "code_index": _code_index(info), "metrics": _metrics_summary(info)}
     active = [f for f in features if f["stage"] != "COMPLETED"]
     chosen = next((f for f in features if f["slug"] == feature_ref), None) if feature_ref else (active or features)[-1]
     if chosen is None:
@@ -246,6 +276,8 @@ def workspace_state(info: WorkspaceInfo, feature_ref: str | None = None) -> dict
         "timeline": timeline, "documents": stages, "runs": runs,
         "human_action": _human_action(feature, stages, runs, info),
         "code_index": _code_index(info),
+        "metrics": _metrics_summary(info),
+        "coverage": _coverage_summary(info),
     }
 
 

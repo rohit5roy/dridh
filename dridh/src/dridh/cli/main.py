@@ -2330,13 +2330,26 @@ def _take_global_json(args: list[str]) -> list[str]:
     return args if accepts else [a for a in args if a != "--json"]
 
 
+@app.command("coverage")
+def coverage_command(
+    json_output: bool = typer.Option(False, "--json", help="Machine-readable matrix."),
+    project: str = PROJECT_OPTION,
+) -> None:
+    """The completion matrix: every approved flow with its story, state, proof or deviation, and code."""
+    from dridh.coordinator.coverage import coverage, render
+
+    report = coverage(_workspace(project))
+    typer.echo(json.dumps(report, indent=2, sort_keys=True, default=str) if json_output else render(report))
+
+
 @app.command("observe")
 def observe(
     json_output: bool = typer.Option(False, "--json", help="Machine-readable report."),
     project: str = PROJECT_OPTION,
 ) -> None:
-    """Operational metrics from persisted state: lifecycle, bridge, index, execution, delivery, reviews, Jev."""
-    from dridh.observability.metrics import collect, render
+    """How the workspace is doing, as tables: features, execution, model usage and cost, reviews, deviations, system."""
+    from dridh.observability.metrics import collect
+    from dridh.observability.tables import render
 
     report = collect(_workspace(project))
     typer.echo(json.dumps(report, indent=2, sort_keys=True, default=str) if json_output else render(report))
@@ -2511,6 +2524,26 @@ def ui_document(stage: str = typer.Argument(..., help="use_cases, design or plan
     from dridh.ui.state import document_view, dump
 
     typer.echo(dump(document_view(_workspace(project), stage, feature)))
+
+
+@ui_app.command("metrics")
+def ui_metrics(project: str = PROJECT_OPTION) -> None:
+    """The observability tables and a one-line summary, for the panel's Metrics tab."""
+    from dridh.observability.metrics import collect
+    from dridh.observability.tables import build
+    from dridh.ui.state import dump
+
+    typer.echo(dump(build(collect(_workspace(project)))))
+
+
+@ui_app.command("coverage")
+def ui_coverage(project: str = PROJECT_OPTION) -> None:
+    """The completion matrix for the panel's Coverage tab, with column widths so the use cases line up."""
+    from dridh.coordinator.coverage import coverage, widths
+    from dridh.ui.state import dump
+
+    report = coverage(_workspace(project))
+    typer.echo(dump({**report, "widths": widths(report)}))
 
 
 @ui_app.command("lot")
