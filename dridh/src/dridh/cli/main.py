@@ -2335,8 +2335,9 @@ def observe(
     json_output: bool = typer.Option(False, "--json", help="Machine-readable report."),
     project: str = PROJECT_OPTION,
 ) -> None:
-    """Operational metrics from persisted state: lifecycle, bridge, index, execution, delivery, reviews, Jev."""
-    from dridh.observability.metrics import collect, render
+    """How the workspace is doing, as tables: features, execution, model usage and cost, reviews, deviations, system."""
+    from dridh.observability.metrics import collect
+    from dridh.observability.tables import render
 
     report = collect(_workspace(project))
     typer.echo(json.dumps(report, indent=2, sort_keys=True, default=str) if json_output else render(report))
@@ -2511,6 +2512,16 @@ def ui_document(stage: str = typer.Argument(..., help="use_cases, design or plan
     from dridh.ui.state import document_view, dump
 
     typer.echo(dump(document_view(_workspace(project), stage, feature)))
+
+
+@ui_app.command("metrics")
+def ui_metrics(project: str = PROJECT_OPTION) -> None:
+    """The observability tables and a one-line summary, for the panel's Metrics tab."""
+    from dridh.observability.metrics import collect
+    from dridh.observability.tables import build
+    from dridh.ui.state import dump
+
+    typer.echo(dump(build(collect(_workspace(project)))))
 
 
 @ui_app.command("lot")

@@ -58,7 +58,8 @@ def test_the_report_never_contains_bodies_or_secrets(info):
 
 def test_cli_prints_a_summary_and_json(info):
     summary = run_module("observe", "--project", str(info.project_root))
-    assert summary.returncode == 0 and "Lifecycle" in summary.stdout and "Bridge" in summary.stdout
+    assert summary.returncode == 0 and "Features" in summary.stdout and "Bridge calls" in summary.stdout
+    assert "None" not in summary.stdout and "{}" not in summary.stdout  # readable values, never raw ones
     parsed = json.loads(run_module("observe", "--json", "--project", str(info.project_root)).stdout)
     assert parsed["workspace"]["id"] == info.workspace_id
 
@@ -92,4 +93,55 @@ def test_usage_is_reported_from_the_usage_log(info):
     usage = collect(info)["usage"]
     assert usage["invocations"] == 1 and usage["total_tokens"] == 6500 and usage["by_stage"]["executor"]["cost"] == 0.0123
     text = render(collect(info))
-    assert "6,500 tokens" in text and "claude-agent/haiku#low" in text and "$0.0123" in text
+    assert "6.5k" in text and "claude-agent/haiku#low" in text and "$0.0123" in text and "Model usage by stage" in text
+
+
+# ------------------------------------------------------------------ tables: the terminal report and the panel's Metrics tab
+
+
+def test_values_read_as_a_person_would_say_them():
+    from dridh.observability.tables import ago, cost, duration, tokens
+
+    assert [ago(None), ago(30), ago(95), ago(3 * 3600 + 5 * 60), ago(3 * 86400)] == ["–", "just now", "1 min ago", "3 h 5 min ago", "3 days ago"]
+    assert [duration(42), duration(3600)] == ["42s", "1 h"]
+    assert [tokens(0), tokens(812), tokens(34_500), tokens(1_234_567)] == ["0", "812", "34.5k", "1.2M"]
+    assert [cost(0), cost(0.0123), cost(0.42), cost(12.5)] == ["$0", "$0.0123", "$0.42", "$12.50"]  # fractions of a cent stay visible
+
+
+def test_the_report_is_tables_with_readable_values_never_raw_ones(info):
+    from dridh.observability.tables import build
+    from dridh.observability.usage import record_usage
+
+    FeatureLifecycle(info).create_feature("Order Intake", actor="t")
+    _bridge(info, "coordinator.status", {})
+    for story, outcome in (("ST-1.1", "OK"), ("ST-1.1", "WORKER_FAILED"), ("ST-1.2", "OK")):
+        record_usage(info.project_root, agent="dridh/executor", model="opencode/big-pickle", session_id="ses_obs_0002", title=f"Dridh Executor {story}",
+                     outcome=outcome, duration_seconds=30.0, resumed=False,
+                     usage={"steps": 1, "input": 400_000, "output": 20_000, "reasoning": 0, "cache_read": 0, "cache_write": 0, "cost": 0.0041})
+    built = build(collect(info))
+    titles = [t["title"] for t in built["tables"]]
+    assert titles[:3] == ["Features", "Execution", "Model usage by stage"] and "Model usage by model" in titles and "System" in titles
+    usage = next(t for t in built["tables"] if t["title"] == "Model usage by stage")
+    assert usage["columns"][:4] == ["Stage", "Runs", "Failed", "Tokens"]
+    assert usage["rows"][-1][:4] == ["all agent runs", "3", "1", "1.3M"] and "$0.0123" in usage["rows"][-1]
+    assert "opencode stats" in usage["note"]  # what the report cannot count is said, not hidden
+    by_story = next(t for t in built["tables"] if t["title"] == "Model usage by story")
+    assert [row[0] for row in by_story["rows"]] == ["ST-1.1", "ST-1.2"]
+    lines = usage["lines"]
+    assert lines[0].startswith("Stage") and set(lines[1]) <= {"─", " "} and lines[2].split()[0] == "executor"
+    assert built["summary"] == "3 agent runs · 1.3M tokens · $0.0123"
+    text = render(collect(info)) + json.dumps(built)
+    assert "None" not in text and "{}" not in text and "order-intake" in text
+
+
+def test_ui_metrics_serves_the_same_tables_and_the_overview_carries_a_summary(info):
+    from dridh.observability.usage import record_usage
+    from dridh.ui.state import workspace_state
+
+    record_usage(info.project_root, agent="dridh/workers/planner-indexer", model="m", session_id="ses_obs_0003", title="Planner", outcome="OK",
+                 duration_seconds=5.0, resumed=False, usage={"steps": 1, "input": 2000, "output": 500, "reasoning": 0, "cache_read": 0, "cache_write": 0, "cost": 0.0})
+    served = json.loads(run_module("ui", "metrics", "--project", str(info.project_root)).stdout)
+    assert served["summary"] == "1 agent run · 2.5k tokens · $0" and any(t["title"] == "Model usage by stage" for t in served["tables"])
+    assert all(isinstance(line, str) for t in served["tables"] for line in t["lines"])
+    FeatureLifecycle(info).create_feature("Order Intake", actor="t")
+    assert workspace_state(info)["metrics"] == "1 agent run · 2.5k tokens · $0"

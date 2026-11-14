@@ -157,36 +157,7 @@ def _flag_stale_index(report: dict[str, Any], info: WorkspaceInfo) -> None:
 
 
 def render(report: dict[str, Any]) -> str:
-    """A compact human-readable summary of ``collect()`` output."""
-    lines = [f"Dridh {report['dridh_version']} · workspace {report['workspace']['id'][:8]} ({report['workspace']['mode']}) · schema v{report['schema_version']}"]
+    """The report as readable text tables (one renderer for the terminal and the panel: see tables.py)."""
+    from dridh.observability.tables import render as render_tables
 
-    def section(title: str, body: str) -> None:
-        lines.append(f"\n{title}\n  {body}")
-
-    life = report["lifecycle"]
-    section("Lifecycle", "; ".join(f"{f['slug']}: {f['stage']} ({f['status']}, {f['seconds_in_stage']}s in stage)" for f in life) if isinstance(life, list) and life else "no features")
-    bridge = report["bridge"]
-    section("Bridge", "unavailable" if "unavailable" in bridge else f"{bridge['sampled']} calls, {bridge['failed']} failed, p50 {bridge['latency_ms']['p50']} ms, p95 {bridge['latency_ms']['p95']} ms")
-    cr = report["code_reacher"]
-    section("Code index", "unavailable" if "unavailable" in cr else "not indexed" if not cr["indexed"] else f"{cr['indexed_files']}/{cr['files']} files, {cr['index_seconds']}s, {cr['failed_runs']} failed runs, {cr['age_seconds']}s old" + (" — STALE: run `dridh index`" if cr.get("stale") else ""))
-    ex = report["execution"]
-    section("Execution", "unavailable" if "unavailable" in ex else f"stories {ex['stories']}, active {ex['active_stories']}, blocked {ex['blocked_stories']}, repairs {ex['repairs']}, runs {ex['runs']}")
-    de = report["delivery"]
-    section("Delivery", "unavailable" if "unavailable" in de else f"PRs {de['pull_requests']}, checks {de['checks']}, blocked gates {de['blocked_dependency_gates']}")
-    rv = report["reviews"]
-    section("Reviews", "unavailable" if "unavailable" in rv else f"pending {rv['pending']}, approved {rv['approved']}, stale documents {rv['stale_documents']}")
-    jev = report["jev"]
-    section("Jev", "unavailable" if "unavailable" in jev else f"evaluations {jev['evaluations']}, fallbacks {jev['fallbacks']}")
-    usage = report.get("usage") or {}
-    if "unavailable" in usage:
-        section("Usage", "unavailable")
-    elif not usage.get("recorded"):
-        section("Usage", "no agent runs recorded yet")
-    else:
-        def line(name: str, b: dict[str, Any]) -> str:
-            return (f"{name}: {b['invocations']} runs ({b['failed']} failed), {b['total_tokens']:,} tokens "
-                    f"(in {b['input']:,}, out {b['output']:,}, reasoning {b['reasoning']:,}, cache read {b['cache_read']:,}, "
-                    f"cache write {b['cache_write']:,}), ${b['cost']:.4f}, {b['duration_seconds']:.0f}s")
-        section("Usage", "\n  ".join([line("all agent runs", usage), *(line(name, b) for name, b in usage["by_stage"].items()),
-                                       *(line(name, b) for name, b in usage["by_model"].items())]))
-    return "\n".join(lines)
+    return render_tables(report)

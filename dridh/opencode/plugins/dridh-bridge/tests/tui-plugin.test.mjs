@@ -101,6 +101,16 @@ test("deviations from the approved use cases are approved by a person on the rea
   assert.match(source, /if \(a\.kind === "delivery_blocked"\) return ctx\.ui\.toast\.show/)
 })
 
+test("metrics are one key, one command and one tab away, as tables laid out by Python", () => {
+  assert.match(source, /slash: \{ name: "dridh-metrics" \}, run: \(\) => show\(\{ name: "metrics" \}\)/, "/dridh-metrics and the palette open them")
+  assert.match(source, /\["metrics", "Metrics"\]\]/, "a Metrics tab in the panel")
+  assert.match(source, /m: "metrics" \}\[key\.name/, "m switches to it from any panel tab")
+  assert.match(source, /dridhJson\(\["ui", "metrics"\], root\(\)\)/, "the rows come from `dridh ui metrics`, the same tables as `dridh observe`")
+  assert.match(source, /<For each=\{table\.lines\}>/, "each table is shown as its laid-out lines")
+  assert.match(source, /<Show when=\{state\(\)\?\.metrics\}>[\s\S]{0,300}m all metrics/, "the overview shows the one-line summary")
+  assert.match(source, /ctx\.ui\.router\.register\(\{ name: "metrics"/, "and a full page on the home screen")
+})
+
 test("before the first feature the TUI shows the setup steps and one next action", () => {
   assert.ok(source.includes("Setup · step"), "the overview shows which step setup is at")
   assert.match(source, /`dridh · \$\{step\} · /, "the status line shows the setup step")
