@@ -35,3 +35,12 @@ for (const button of document.querySelectorAll("[data-copy]")) {
     }
   });
 }
+
+/* The latest stable release, read from GitHub when the page loads; "pre-1.0" stays if GitHub cannot be reached. */
+const release = document.querySelector("[data-release]");
+if (release) {
+  fetch("https://api.github.com/repos/rohit5roy/dridh/releases/latest", { headers: { Accept: "application/vnd.github+json" } })
+    .then((response) => (response.ok ? response.json() : null))
+    .then((latest) => { if (latest && /^v\d+\.\d+\.\d+/.test(latest.tag_name || "")) release.textContent = latest.tag_name; })
+    .catch(() => {});
+}
