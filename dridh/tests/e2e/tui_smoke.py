@@ -13,9 +13,9 @@ The scenario is a person's first run in a project:
   7. "Code indexed (N files)": the setup moves to step 3 of 3, OpenCode stays in that folder; then, as after an upgrade
      that changes the search model, the stored vectors are made stale and the panel re-indexes on its own; then a file
      is added and another deleted outside Dridh, and the panel updates the index on its own
-8. a real Dridh error (the state database is corrupted): its message, never raw JSON
-9. in the populated Phase 13 workspace: overview, Use Case and design documents, partial review checklist, metrics,
-   completion matrix and execution-lot review
+  8. a real Dridh error (the state database is corrupted): its message, never raw JSON
+  9. in the populated Phase 13 workspace: overview, Use Case and design documents, partial review checklist, metrics,
+     completion matrix and execution-lot review
 
 Dridh is installed into a throwaway HOME with `dridh install`, and OpenCode is started with a PATH that does NOT
 contain dridh, so the plugin must find it through the installer's record. No model or credential is used.
@@ -23,7 +23,7 @@ contain dridh, so the plugin must find it through the installer's record. No mod
 Each required screen waits for exact text (polling, not fixed sleeps) and fails after a timeout. Captures are saved as
 .txt, .ansi and .png; intermediate indexing screens are optional captures because indexing may finish before they appear.
 
-Usage: tui_smoke.py --opencode PATH --dridh PATH --out DIR [--feature-project DIR]
+Usage: tui_smoke.py --opencode PATH --dridh PATH --out DIR [--feature-project DIR] [--first-run-only]
 """
 
 from __future__ import annotations
@@ -40,6 +40,11 @@ import tempfile
 import time
 from contextlib import closing
 from pathlib import Path
+
+from tui_smoke_contract import (
+    FIRST_RUN_REQUIRED_SCREENSHOTS,
+    FULL_REQUIRED_SCREENSHOTS,
+)
 
 WIDTH, HEIGHT = 320, 87
 SESSION = "dridh-tui-smoke"
@@ -180,27 +185,61 @@ class StepFailed(AssertionError):
 
 
 class Smoke:
-    def __init__(self, out: Path) -> None:
+    def __init__(self, out: Path, *, require_side_by_side: bool = True, required_screenshots: tuple[str, ...] = FULL_REQUIRED_SCREENSHOTS) -> None:
         self.out = out
+        self.require_side_by_side = require_side_by_side
+        self.required_screenshots = required_screenshots
         self.steps: list[dict[str, str]] = []
 
     def save(self, name: str) -> None:
         text, ansi = screen(), screen(ansi=True)
+        if self.require_side_by_side:
+            self._require_side_by_side(name, text)
+        self._write(name, text, ansi)
+
+    @staticmethod
+    def _require_side_by_side(name: str, text: str) -> None:
         if not PANEL_HEADER.search(text):
             excerpt = " / ".join(line.strip() for line in text.splitlines() if line.strip())[:500]
             raise StepFailed(f"{name}: refusing a screenshot without OpenCode on the left and the Dridh panel on the right; screen: {excerpt}")
         if "Start this TUI screenshot session." not in text:
             raise StepFailed(f"{name}: refusing a screenshot without the OpenCode conversation visible beside Dridh")
+
+    def _write(self, name: str, text: str, ansi: str) -> None:
         (self.out / f"{name}.txt").write_text(text, encoding="utf-8")
         (self.out / f"{name}.ansi").write_text(ansi, encoding="utf-8")
         render_png(ansi, self.out / f"{name}.png")
 
+    def save_failure(self, name: str, text: str) -> str | None:
+        """Best-effort raw failure capture; never applies the successful screenshot layout guard."""
+        errors = []
+        try:
+            ansi = screen(ansi=True)
+        except Exception as exc:  # noqa: BLE001 - preserve the original assertion failure
+            ansi = text
+            errors.append(f"ANSI capture failed: {type(exc).__name__}: {exc}")
+        try:
+            (self.out / f"{name}.txt").write_text(text, encoding="utf-8")
+            (self.out / f"{name}.ansi").write_text(ansi, encoding="utf-8")
+            render_png(ansi, self.out / f"{name}.png")
+        except Exception as exc:  # noqa: BLE001 - keep assertion/timeout as the primary failure
+            errors.append(f"Could not write failure screenshot: {type(exc).__name__}: {exc}")
+        return "; ".join(errors) or None
+
     def glimpse(self, name: str, needle: str, timeout: float = 20) -> bool:
-        """Saves the screen when the regular expression NEEDLE matches, for screenshots of short-lived states; never fails the run."""
+        """Optionally save a short-lived state; a missed or unusable glimpse never fails the run."""
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
-            if re.search(needle, screen()):
-                self.save(name)
+            text = screen()
+            if re.search(needle, text):
+                try:
+                    if self.require_side_by_side:
+                        self._require_side_by_side(name, text)
+                    self._write(name, text, screen(ansi=True))
+                except Exception as exc:  # noqa: BLE001 - optional screenshots never fail the smoke
+                    print(f"--  {name}: state seen, screenshot skipped: {type(exc).__name__}: {exc}", flush=True)
+                    return False
+                self.steps.append({"step": name, "saw": needle})
                 print(f"ok  {name}: {needle} (seen)", flush=True)
                 return True
             time.sleep(0.1)
@@ -209,23 +248,34 @@ class Smoke:
 
     def wait(self, name: str, needle: str, timeout: float = 60, forbid: tuple[str, ...] = (), capture: bool = True) -> None:
         deadline = time.monotonic() + timeout
+        text = ""
         while time.monotonic() < deadline:
             text = screen()
             if needle in text:
                 for bad in forbid:
                     if bad in text:
-                        if capture:
-                            self.save(f"{name}-FAILED")
-                        raise StepFailed(f"{name}: the screen shows {bad!r}")
+                        save_error = self.save_failure(f"{name}-FAILED", text)
+                        suffix = f"\n{save_error}" if save_error else ""
+                        raise StepFailed(f"{name}: the screen shows {bad!r}\nLast screen:\n{text[-1500:]}{suffix}")
                 if capture:
-                    self.save(name)
+                    try:
+                        self.save(name)
+                    except StepFailed as exc:
+                        save_error = self.save_failure(f"{name}-FAILED", text)
+                        suffix = f"\n{save_error}" if save_error else ""
+                        raise StepFailed(f"{exc}\nLast screen:\n{text[-1500:]}{suffix}") from exc
                 self.steps.append({"step": name, "saw": needle})
                 print(f"ok  {name}: {needle}", flush=True)
                 return
             time.sleep(0.5)
-        if capture:
-            self.save(f"{name}-FAILED")
-        raise StepFailed(f"{name}: {needle!r} did not appear within {timeout:.0f} s")
+        if not text:
+            try:
+                text = screen()
+            except Exception as exc:  # noqa: BLE001 - preserve the timeout as the primary failure
+                text = f"<screen capture failed: {type(exc).__name__}: {exc}>"
+        save_error = self.save_failure(f"{name}-FAILED", text)
+        suffix = f"\n{save_error}" if save_error else ""
+        raise StepFailed(f"{name}: {needle!r} did not appear within {timeout:.0f} s\nLast screen:\n{text[-1500:]}{suffix}")
 
 
 def keys(*sequence: str) -> None:
@@ -243,6 +293,7 @@ def main() -> int:
     parser.add_argument("--dridh", required=True, help="dridh executable (its directory is kept off OpenCode's PATH)")
     parser.add_argument("--out", required=True, help="directory for the screenshots and screen text")
     parser.add_argument("--feature-project", help="optional deterministic, fully-populated project for lifecycle-view captures")
+    parser.add_argument("--first-run-only", action="store_true", help="exercise the first-run home route without a model or session panel")
     args = parser.parse_args()
 
     opencode, dridh = Path(args.opencode).resolve(), Path(args.dridh).resolve()
@@ -277,28 +328,61 @@ def main() -> int:
         config_dir = home / ".config" / "opencode"
         config_path = config_dir / "opencode.json"
         opencode_config = json.loads(config_path.read_text(encoding="utf-8"))
-        opencode_config.update({
-            "model": "dridhtest/scripted",
-            "providers": {
-                "dridhtest": {
-                    "name": "E2E local stub",
-                    "package": "@opencode/ai/providers/openai-compatible",
-                    "settings": {"baseURL": "http://127.0.0.1:18090/v1", "apiKey": "e2e-placeholder-not-a-credential"},
-                    "models": {"scripted": {"name": "Scripted"}},
-                }
-            },
-        })
+        if not args.first_run_only:
+            opencode_config.update({
+                "model": "dridhtest/scripted",
+                "providers": {
+                    "dridhtest": {
+                        "name": "E2E local stub",
+                        "package": "@opencode/ai/providers/openai-compatible",
+                        "settings": {"baseURL": "http://127.0.0.1:18090/v1", "apiKey": "e2e-placeholder-not-a-credential"},
+                        "models": {"scripted": {"name": "Scripted"}},
+                    }
+                },
+            })
         config_path.write_text(json.dumps(opencode_config, indent=2) + "\n", encoding="utf-8")
 
         path = os.pathsep.join(p for p in ("/usr/local/bin", "/usr/bin", "/bin") if Path(p) != dridh.parent)
         env = (f"env -i HOME={home} OPENCODE_CONFIG_DIR={config_dir} PATH={path} TERM=xterm-256color "
                "COLORTERM=truecolor LANG=C.UTF-8 OPENCODE_DISABLE_MODELS_FETCH=1 OPENCODE_DISABLE_AUTOUPDATE=1")
         subprocess.run(["tmux", "kill-session", "-t", SESSION], capture_output=True, check=False)  # noqa: S603, S607
+        route = f"--session {OPENCODE_SESSION} {project}" if not args.first_run_only else str(project)
         tmux("new-session", "-d", "-s", SESSION, "-x", str(WIDTH), "-y", str(HEIGHT),
-             f"{env} {opencode} --standalone --session {OPENCODE_SESSION} {project} 2>{Path(tmp) / 'opencode.err'}")
-        smoke = Smoke(out)
+             f"{env} {opencode} --standalone {route} 2>{Path(tmp) / 'opencode.err'}")
+        required = FIRST_RUN_REQUIRED_SCREENSHOTS if args.first_run_only else FULL_REQUIRED_SCREENSHOTS
+        smoke = Smoke(out, require_side_by_side=not args.first_run_only, required_screenshots=required)
         raw_json = ('{"ok"', '"error":')
         try:
+            if args.first_run_only:
+                smoke.wait("1-first-run", "dridh · type /dridh to set up", timeout=120)
+                keys("/dridh")
+                time.sleep(1)
+                keys("Enter")
+                smoke.wait("2-setup-choice", "Set up Dridh", capture=False)
+                keys("Enter")
+                smoke.wait("3-set-up", "Setup · step 2 of 2")
+                keys("Escape")
+                smoke.wait("4-ready", "dridh · setup 2/2", forbid=raw_json)
+                keys("Escape")
+                keys(f"/cd {other}")
+                time.sleep(1)
+                keys("Enter", "Enter")
+                smoke.wait("5-cd-status", "dridh · type /dridh to set up", capture=False)
+                keys("/dridh")
+                time.sleep(1)
+                keys("Enter")
+                smoke.wait("6a-setup-choice-existing", "Set up Dridh", capture=False)
+                keys("Down", "Enter")
+                smoke.wait("7-indexed", f"Code indexed ({OTHER_FILES} files)", timeout=300)
+                first_run_db = other / ".opencode" / "dridh" / "state" / "dridh.sqlite"
+                corrupt = first_run_db.with_name("dridh.sqlite.corrupt")
+                corrupt.write_text("not a database, written by the smoke test to cause a real Dridh error")
+                os.replace(corrupt, first_run_db)
+                for suffix in ("-wal", "-shm"):
+                    Path(f"{first_run_db}{suffix}").unlink(missing_ok=True)
+                smoke.wait("8-error-message", "dridh · The workflow state database could not be opened", forbid=raw_json)
+                return 0
+
             # OpenCode is launched directly into a session, so the plugin's views live in its right panel, leaving the
             # conversation visible on the left. Setup-choice dialogs are asserted but intentionally not saved.
             smoke.wait("0-session-route", "Ask anything", timeout=120, capture=False)
@@ -323,6 +407,8 @@ def main() -> int:
             keys(f"/cd {other}")
             time.sleep(1)
             keys("Enter", "Enter")
+            # In an active session the short status is "not set up"; the first-run home route checks the full prompt.
+            smoke.wait("5-cd-status", "dridh · not set up", capture=False)
 
             keys("/dridh")
             time.sleep(1)
@@ -338,8 +424,9 @@ def main() -> int:
                 raise StepFailed(f"7-indexed: workspace mode is {workspace.get('mode')!r}, expected 'existing'")
             smoke.wait("7b-ready-in-other-folder", "dridh · setup 3/3", forbid=raw_json)
             if f"/{other.name} " not in screen():
-                smoke.save("7b-FAILED-folder")
-                raise StepFailed("7b-ready-in-other-folder: OpenCode is no longer in the folder /cd moved to")
+                last_screen = screen()
+                smoke.save_failure("7b-FAILED-folder", last_screen)
+                raise StepFailed(f"7b-ready-in-other-folder: OpenCode is no longer in the folder /cd moved to\nLast screen:\n{last_screen[-1500:]}")
 
             # An upgrade changes the search model or the embedded text: the stored vectors are then stale (made as an
             # older release made them), and the panel re-indexes in the background on its own.
@@ -371,8 +458,9 @@ def main() -> int:
                     print("ok  7f-outside-change-indexed: the new file is indexed and the deleted one is gone", flush=True)
                     break
                 if time.monotonic() > deadline:
-                    smoke.save("7f-outside-change-indexed-FAILED")
-                    raise StepFailed("7f-outside-change-indexed: the change made outside Dridh was not indexed within 90 s")
+                    last_screen = screen()
+                    smoke.save_failure("7f-outside-change-indexed-FAILED", last_screen)
+                    raise StepFailed(f"7f-outside-change-indexed: the change made outside Dridh was not indexed within 90 s\nLast screen:\n{last_screen[-1500:]}")
                 time.sleep(1)
 
             # A new file, not the old one overwritten: the panel refreshes every 5 s, and a `dridh ui state` that still has
@@ -395,7 +483,10 @@ def main() -> int:
             return 1
         finally:
             subprocess.run(["tmux", "kill-session", "-t", SESSION], capture_output=True, check=False)  # noqa: S603, S607
-            (out / "steps.json").write_text(json.dumps(smoke.steps, indent=2) + "\n")
+            (out / "steps.json").write_text(json.dumps({
+                "required_screenshots": list(smoke.required_screenshots),
+                "steps": smoke.steps,
+            }, indent=2) + "\n")
 
     print(f"all {len(smoke.steps)} steps passed; screens in {out}")
     return 0

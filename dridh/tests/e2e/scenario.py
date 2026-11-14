@@ -28,6 +28,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pty_confirm import run_with_typed_confirmation  # noqa: E402
+from tui_smoke_contract import FULL_REQUIRED_SCREENSHOTS, validate_tui_evidence  # noqa: E402
 
 WORK = Path("/work")
 HOME = WORK / "home"
@@ -687,33 +688,17 @@ def tui_smoke_step() -> None:
     (EVIDENCE / "tui-smoke.log").write_text(completed.stdout + completed.stderr, encoding="utf-8")
     steps_path = output / "steps.json"
     try:
-        steps = json.loads(steps_path.read_text(encoding="utf-8"))
+        manifest = json.loads(steps_path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
-        steps = []
-    screenshots = {suffix: sorted(output.glob(f"*{suffix}")) for suffix in (".txt", ".ansi", ".png")}
-    aspect_errors: list[str] = []
-    try:
-        from PIL import Image
-
-        for path in screenshots[".png"]:
-            with Image.open(path) as image:
-                if image.width * 9 != image.height * 16:
-                    aspect_errors.append(f"{path.name}: {image.width}x{image.height}")
-    except Exception as exc:  # noqa: BLE001 - PNG inspection is part of the mandatory screenshot check
-        aspect_errors.append(f"{type(exc).__name__}: {exc}")
-    passed = (
-        completed.returncode == 0
-        and len(steps) >= 18
-        and all(len(files) >= 18 for files in screenshots.values())
-        and not aspect_errors
-    )
+        manifest = {}
+    evidence = validate_tui_evidence(output, manifest, exit_code=completed.returncode,
+                                     required_screenshots=FULL_REQUIRED_SCREENSHOTS)
+    passed = evidence["passed"]
     record(
         "E2E-47",
         "Packaged Dridh drives the real OpenCode TUI and captures populated lifecycle views",
         passed,
-        {"review_fixture": review, "exit_code": completed.returncode, "steps": len(steps),
-         "screens": {suffix: len(files) for suffix, files in screenshots.items()},
-         "png_aspect_ratio": "16:9" if not aspect_errors else aspect_errors,
+        {"review_fixture": review, "exit_code": completed.returncode, **evidence,
          "log_tail": (completed.stdout + completed.stderr)[-800:]},
     )
 
