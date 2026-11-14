@@ -41,7 +41,7 @@ import time
 from contextlib import closing
 from pathlib import Path
 
-WIDTH, HEIGHT = 320, 45
+WIDTH, HEIGHT = 320, 87
 SESSION = "dridh-tui-smoke"
 OPENCODE_SESSION = "ses_0123456789abcdef0123456789"
 OTHER_FILES = 1500
@@ -137,12 +137,18 @@ def render_png(ansi: str, path: Path) -> bool:
     bold = ImageFont.truetype(fonts[-1], size)
     cell_w = round(regular.getlength("M"))
     cell_h = round(size * 1.25)
-    pad = 24
-    image = Image.new("RGB", (WIDTH * cell_w + 2 * pad, HEIGHT * cell_h + 2 * pad), DEFAULT_BG)
+    pad_x = 24
+    image_width = WIDTH * cell_w + 2 * pad_x
+    image_height = round(image_width * 9 / 16)
+    content_height = HEIGHT * cell_h
+    pad_y = (image_height - content_height) // 2
+    if pad_y < 0:
+        raise ValueError("the captured terminal is too tall for a 16:9 screenshot")
+    image = Image.new("RGB", (image_width, image_height), DEFAULT_BG)
     draw = ImageDraw.Draw(image)
     for y, row in enumerate(parse_ansi(ansi)):
         for x, (ch, fg, bg, is_bold) in enumerate(row[:WIDTH]):
-            left, top = pad + x * cell_w, pad + y * cell_h
+            left, top = pad_x + x * cell_w, pad_y + y * cell_h
             if bg != DEFAULT_BG:
                 draw.rectangle([left, top, left + cell_w - 1, top + cell_h - 1], fill=bg)
             if ch == "█":

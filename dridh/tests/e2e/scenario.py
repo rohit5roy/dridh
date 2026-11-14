@@ -691,13 +691,29 @@ def tui_smoke_step() -> None:
     except (OSError, ValueError):
         steps = []
     screenshots = {suffix: sorted(output.glob(f"*{suffix}")) for suffix in (".txt", ".ansi", ".png")}
-    passed = completed.returncode == 0 and len(steps) >= 18 and all(len(files) >= 18 for files in screenshots.values())
+    aspect_errors: list[str] = []
+    try:
+        from PIL import Image
+
+        for path in screenshots[".png"]:
+            with Image.open(path) as image:
+                if image.width * 9 != image.height * 16:
+                    aspect_errors.append(f"{path.name}: {image.width}x{image.height}")
+    except Exception as exc:  # noqa: BLE001 - PNG inspection is part of the mandatory screenshot check
+        aspect_errors.append(f"{type(exc).__name__}: {exc}")
+    passed = (
+        completed.returncode == 0
+        and len(steps) >= 18
+        and all(len(files) >= 18 for files in screenshots.values())
+        and not aspect_errors
+    )
     record(
         "E2E-47",
         "Packaged Dridh drives the real OpenCode TUI and captures populated lifecycle views",
         passed,
         {"review_fixture": review, "exit_code": completed.returncode, "steps": len(steps),
          "screens": {suffix: len(files) for suffix, files in screenshots.items()},
+         "png_aspect_ratio": "16:9" if not aspect_errors else aspect_errors,
          "log_tail": (completed.stdout + completed.stderr)[-800:]},
     )
 
