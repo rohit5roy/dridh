@@ -331,9 +331,14 @@ def main() -> int:
                     raise StepFailed("7f-outside-change-indexed: the change made outside Dridh was not indexed within 90 s")
                 time.sleep(1)
 
+            # A new file, not the old one overwritten: the panel refreshes every 5 s, and a `dridh ui state` that still has
+            # the database open checkpoints into the file it opened when it closes. Overwritten in place, that file got its
+            # pages back and the "corrupted" database worked again (an intermittent CI failure of this step).
+            corrupt = database.with_name("dridh.sqlite.corrupt")
+            corrupt.write_text("not a database, written by the smoke test to cause a real Dridh error")
+            os.replace(corrupt, database)
             for suffix in ("-wal", "-shm"):
                 Path(f"{database}{suffix}").unlink(missing_ok=True)
-            database.write_text("not a database, written by the smoke test to cause a real Dridh error")
             smoke.wait("8-error-message", "dridh · The workflow state database could not be opened", forbid=raw_json)
         except StepFailed as failure:
             print(f"FAIL {failure}", file=sys.stderr)
