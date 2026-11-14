@@ -8,6 +8,7 @@ Design notes and reference for the parts of Dridh that are not obvious from the 
 - [Error classification](architecture/ERROR-CLASSIFICATION.md): the error categories at each layer, and the retry policy.
 - [TypeScript plugin](architecture/TYPESCRIPT-PLUGIN.md): the OpenCode plugin and terminal UI: tool input, how `dridh` is found, hooks, and tests.
 - [Agent runner](architecture/AGENT-RUNNER.md): how Dridh runs OpenCode agents: invocation, failure categories, timeouts, and the live tests.
+- [Flow coverage and the deviation ledger](architecture/DELIVERY-COVERAGE.md): how every approved use-case flow is proven by a passing test or explained by an approved ledger entry before a feature leaves execution.
 - [Story cards](architecture/STORY-CARDS.md): the approved contract Python attaches to each story, the check that cards do not contradict it, and what a file ownership entry may be.
 - [Recovery scenarios](architecture/RECOVERY-SCENARIOS.md): sixteen failure scenarios, how Dridh recovers from each, and the tests that cover them.
 

@@ -163,11 +163,12 @@ def _archive(directory: Path, members: list[tuple[str, bytes | None, str | None]
     return directory
 
 
+# The layout the release archive carries: Dridh's own model folder (see .github/scripts/build_model_archive.py).
 MODEL_LAYOUT = [
-    ("dridh-embedding-model.json", json.dumps({"model": "BAAI/bge-small-en-v1.5"}).encode(), None),
-    ("models--Qdrant--bge-small-en-v1.5-onnx-Q/blobs/abc", b"onnx bytes", None),
-    ("models--Qdrant--bge-small-en-v1.5-onnx-Q/refs/main", b"aa8f8b0", None),
-    ("models--Qdrant--bge-small-en-v1.5-onnx-Q/snapshots/aa8f8b0/model_optimized.onnx", None, "../../blobs/abc"),
+    ("dridh-embedding-model.json", json.dumps({"model": "thenlper/gte-small", "folder": "thenlper--gte-small/17e1f347d17f"}).encode(), None),
+    ("thenlper--gte-small/17e1f347d17f/.dridh-ready", b"17e1f347d17fe144873b1201da91788898c639cd", None),
+    ("thenlper--gte-small/17e1f347d17f/onnx/model.onnx", b"onnx bytes", None),
+    ("thenlper--gte-small/17e1f347d17f/tokenizer_config.json", b'{"model_max_length": 512}', None),
 ]
 
 
@@ -175,9 +176,21 @@ def test_the_model_is_checked_unpacked_and_not_unpacked_twice(tmp_path: Path) ->
     source, cache = _archive(tmp_path / "release", MODEL_LAYOUT), tmp_path / "cache"
     result = _run_model(f'model_is_current "{source}" "{cache}" && exit 9; unpack_model "{source}" "{cache}"; model_is_current "{source}" "{cache}"')
     assert result.returncode == 0, result.stderr
-    snapshot = cache / "models--Qdrant--bge-small-en-v1.5-onnx-Q" / "snapshots" / "aa8f8b0" / "model_optimized.onnx"
-    assert snapshot.is_symlink() and snapshot.read_bytes() == b"onnx bytes", "the snapshot link resolves inside the cache"
+    folder = cache / "thenlper--gte-small" / "17e1f347d17f"
+    assert (folder / "onnx" / "model.onnx").read_bytes() == b"onnx bytes" and (folder / ".dridh-ready").is_file(), \
+        "the model folder lands where Dridh's model_files() looks, marked ready, so nothing is downloaded"
     assert (cache / "dridh-embedding-model.tar.gz.sha256").read_text() == (source / "dridh-embedding-model.tar.gz.sha256").read_text()
+
+
+def test_the_release_archive_layout_is_where_the_shipped_model_is_looked_up() -> None:
+    """The archive's folder must stay the one embeddings.model_files() reads, or every install downloads the model again.
+    Found after the model changed: the archive builder still packaged the previous model in FastEmbed's own layout."""
+    from dridh.code_reacher.embeddings import FASTEMBED_MODEL, FASTEMBED_REVISION
+
+    folder = f"{FASTEMBED_MODEL.replace('/', '--')}/{FASTEMBED_REVISION[:12]}"
+    assert all(name.startswith(folder + "/") for name, _data, _link in MODEL_LAYOUT[1:])
+    builder = (SCRIPT.parent / ".github" / "scripts" / "build_model_archive.py").read_text(encoding="utf-8")
+    assert "embeddings.model_files()" in builder and "BAAI/" not in builder, "the archive is built from Dridh's own model folder"
 
 
 def test_a_checksum_mismatch_unpacks_nothing(tmp_path: Path) -> None:
@@ -223,6 +236,6 @@ def test_the_plan_names_where_the_model_comes_from(tmp_path: Path) -> None:
     assert "model     install  from the release (dridh-embedding-model.tar.gz, checksum-verified) into " in release.stdout
     assert f"{tmp_path / 'home'}/.cache/dridh/fastembed" in release.stdout
     assert "model     skip     --no-embeddings" in _check(tmp_path, path, "--no-glow", "--no-embeddings").stdout
-    assert "model     later    FastEmbed downloads it on first use" in _check(tmp_path, path, "--no-glow").stdout  # a checkout
+    assert "model     later    Dridh downloads it on first use" in _check(tmp_path, path, "--no-glow").stdout  # a checkout
     local = _archive(tmp_path / "offline", MODEL_LAYOUT) / "dridh-embedding-model.tar.gz"
     assert f"model     install  from {local} into " in _check(tmp_path, path, "--no-glow", "--model", str(local)).stdout

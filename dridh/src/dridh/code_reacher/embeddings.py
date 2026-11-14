@@ -25,7 +25,7 @@ from dridh.state.store import utc_now
 
 # thenlper/gte-small (MIT, 33M parameters, 384 dimensions, mean pooling). On a CodeSearchNet benchmark (Python and Java,
 # 1,000 methods and 200 queries each, the text from `embedding_text`) it ranked the right method first more often than
-# BAAI/bge-small-en-v1.5 (Python 88% vs 86%, Java 83% vs 79%) at the same speed. Pinned to one revision of its files.
+# BAAI/bge-small-en-v1.5 (Python 88% vs 86%, Java 83% vs 79%) at the same speed per text. Pinned to one revision of its files.
 FASTEMBED_MODEL = "thenlper/gte-small"
 FASTEMBED_REVISION = "17e1f347d17fe144873b1201da91788898c639cd"
 FASTEMBED_FILES = ["onnx/model.onnx", "config.json", "tokenizer.json", "tokenizer_config.json", "special_tokens_map.json", "vocab.txt"]

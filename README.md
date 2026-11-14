@@ -41,7 +41,7 @@ OpenCode configuration, backing up every file it changes, and never changes your
 <details>
 <summary>Other ways to install</summary>
 
-- A specific release, including release candidates: `bash install.sh --release v0.7.9` (the default installs the latest stable release)
+- A specific release, including release candidates: `bash install.sh --release vX.Y.Z` with a tag from [Releases](https://github.com/rohit5roy/dridh/releases) (the default installs the latest stable release)
 - From a clone (needs Node.js 24 and npm to build the plugin): `git clone https://github.com/rohit5roy/dridh && cd dridh && ./install.sh`
 - Offline: download `dridh-embedding-model.tar.gz` and its `.sha256` from a release, then `bash install.sh --model dridh-embedding-model.tar.gz`; `--no-embeddings` skips code-search embeddings entirely
 </details>
@@ -78,7 +78,7 @@ flowchart LR
 | Use Cases | Actors, flows and business rules (`001-USE-CASES.md`) | Tick the checklist, then `dridh ideator approve <session>` |
 | Technical design | A validated technical design document | Tick the checklist, then `dridh designer approve <session>` |
 | Plan | Central plan, component plans, story cards, test plan | Tick the checklist, then `dridh planner approve <session>` |
-| Execution | One Git worktree and branch per story; each story's tests run in their own Docker container (on the host when Docker is missing) | `dridh execute start <feature>`, then a verdict per checkpoint lot (`dridh execute review`) |
+| Execution | One Git worktree and branch per story; each story's tests run in their own Docker container (on the host when Docker is missing). Every use-case flow must be proven by a passing test named for it, or recorded in `LEDGER.md` as a deviation | `dridh execute start <feature>`, then a verdict per checkpoint lot (`dridh execute review`), and a decision on each deviation (`dridh ledger approve`) |
 | Delivery | Optional stacked pull requests on GitHub (off by default; Dridh never merges) | `dridh feature complete` |
 
 Each approval shows what you are approving and asks you to type a confirmation. If a document changes afterwards, the
@@ -102,8 +102,9 @@ The plugin adds Dridh to OpenCode's terminal interface without modifying OpenCod
 
 | | |
 |---|---|
-| Where am I? | `dridh feature status`, `dridh execute status`, `dridh observe` |
-| Search your code | `dridh index`, `dridh code search "<query>"`, `dridh code for <story>` |
+| Where am I? | `dridh feature status`, `dridh execute status`, `dridh feature check-delivery`, `dridh observe` |
+| Search your code | `dridh index`, `dridh code search "<query>"`, `dridh code for <story>` (in OpenCode the index is updated on its own when files change) |
+| Deviations | `dridh ledger approve LDG-NN --reviewer <name>`, `dridh ledger reject`, `dridh ledger draft --story <blocked story>` |
 | Check the setup | `dridh doctor` |
 | Safety | `dridh backup`, `dridh restore`, `dridh integrity`, `dridh recovery` |
 | Upgrade | run the install command again (or `dridh upgrade` after installing a newer wheel) |
