@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 from dridh.common.errors import DridhError, ErrorCode
@@ -107,13 +108,43 @@ def _relative(path: str) -> str:
     return text.lstrip("/")
 
 
-def paths_within(allowed: tuple[str, ...], changed: tuple[str, ...]) -> list[str]:
-    """Return the changed paths that fall outside every allowed prefix."""
+_GLOB = re.compile(r"[*?]")
 
-    prefixes = [_relative(prefix).rstrip("/") for prefix in allowed]
-    outside: list[str] = []
-    for item in changed:
-        normalised = _relative(item)
-        if not any(normalised == prefix or normalised.startswith(prefix + "/") for prefix in prefixes):
-            outside.append(item)
-    return outside
+
+def glob_regex(pattern: str) -> re.Pattern[str]:
+    """A project-relative glob as a regular expression: ``**`` spans directories, ``*`` and ``?`` stay within one, every
+    other character is literal (so a path such as ``app/[id]/page.tsx`` matches itself). A match also owns everything
+    under it, as a directory entry does."""
+    out, index = [], 0
+    while index < len(pattern):
+        if pattern.startswith("**/", index):
+            out.append("(?:.*/)?")
+            index += 3
+        elif pattern.startswith("**", index):
+            out.append(".*")
+            index += 2
+        elif pattern[index] == "*":
+            out.append("[^/]*")
+            index += 1
+        elif pattern[index] == "?":
+            out.append("[^/]")
+            index += 1
+        else:
+            out.append(re.escape(pattern[index]))
+            index += 1
+    return re.compile("".join(out) + "(?:/.*)?")
+
+
+def owns(entry: str, path: str) -> bool:
+    """Whether the ownership ``entry`` (a path, a directory or a glob) covers the changed ``path``."""
+    prefix = _relative(entry).rstrip("/")
+    normalised = _relative(path)
+    if normalised == prefix or normalised.startswith(prefix + "/"):
+        return True
+    return bool(_GLOB.search(prefix)) and glob_regex(prefix).fullmatch(normalised) is not None
+
+
+def paths_within(allowed: tuple[str, ...], changed: tuple[str, ...]) -> list[str]:
+    """Return the changed paths that no allowed entry (path, directory or glob) covers."""
+
+    return [item for item in changed if not any(owns(entry, item) for entry in allowed)]

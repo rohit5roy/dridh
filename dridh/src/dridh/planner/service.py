@@ -34,7 +34,8 @@ from dridh.document_contracts.validator import (
 )
 from dridh.integrations.opencode import AgentRunError, OpenCodeRunner
 from dridh.orchestration.repair import RepairOutcome, call_with_repair
-from dridh.state.design import DesignRepository, validated_master_model, validated_tdd_model
+from dridh.planner.contract import approved_signatures, contract_conflicts, ownership_problem, reference_text, story_contract
+from dridh.state.design import DesignRepository, parse_tdd_model, validated_master_model, validated_tdd_model
 from dridh.state.documents import DocumentRepository, content_hash
 from dridh.state.planning import (
     PlanningRepository,
@@ -156,13 +157,15 @@ def _slug(value: str) -> str:
 
 
 def _overlap(left: str, right: str) -> bool:
-    a = left.replace("\\", "/").strip("/")
-    b = right.replace("\\", "/").strip("/")
-    if a.endswith("/**"):
-        a = a[:-3]
-    if b.endswith("/**"):
-        b = b[:-3]
-    return a == b or a.startswith(b + "/") or b.startswith(a + "/")
+    """Whether two ownership entries may cover the same file. A glob is taken as its literal base directory
+    (``src/**/*.py`` covers ``src``), which can only over-report an overlap: two stories that might touch one file are
+    never marked safe to run in parallel."""
+    def base(entry: str) -> str:
+        parts = entry.replace("\\", "/").strip("/").split("/")
+        first_glob = next((i for i, part in enumerate(parts) if "*" in part or "?" in part), len(parts))
+        return "/".join(parts[:first_glob])
+    a, b = base(left), base(right)
+    return a == b or not a or not b or a.startswith(b + "/") or b.startswith(a + "/")
 
 
 def _topological(stories: list[dict[str, Any]]) -> tuple[list[str], dict[str, int]]:
@@ -433,6 +436,11 @@ class PlannerService:
                       for f in use_cases.flows],
             "tdd_traceability": [{"use_case_id": m.use_case_id, "flow_id": m.flow_id, "component_id": m.component_id,
                                   "decision_id": m.design_decision_id} for m in tdd.mappings],
+            # The approved API/event references (TDD Table 13), verbatim. Python attaches them to each story the Executor
+            # receives, and story cards are checked against them.
+            "api_contract": [{"use_case_id": a.use_case_id, "flow_id": a.flow_id, "component_id": a.component_id,
+                              "reference_kind": a.reference_kind, "reference_name": a.reference_name, "position": a.position}
+                             for a in tdd.api_events],
             "code_index": code_index,
         }
 
@@ -495,8 +503,15 @@ class PlannerService:
                 raise DridhError(ErrorCode.WORKER_FAILED, "Feature stories must declare concrete file ownership.", details=(key,))
             for owned in raw["file_ownership"]:
                 normalized_path = owned.strip().replace("\\", "/")
-                if normalized_path.startswith("/") or re.match(r"^[A-Za-z]:", normalized_path) or ".." in Path(normalized_path).parts:
-                    raise DridhError(ErrorCode.WORKER_FAILED, "Story file ownership must use safe project-relative paths.", details=(key, normalized_path))
+                problem = ownership_problem(normalized_path)
+                if problem:
+                    raise DridhError(
+                        ErrorCode.WORKER_FAILED,
+                        "Story file_ownership entries must be plain project-relative paths or globs, with no annotations. "
+                        "Ownership is per file: to limit a story to part of a file, list the file's path here and say which "
+                        "part in the story's todos or definition_of_done.",
+                        details=(key, f"entry: {owned}", f"problem: {problem}"),
+                    )
             rationale_map = raw.get("dependency_rationale", {})
             if not isinstance(rationale_map, dict):
                 raise DridhError(ErrorCode.WORKER_FAILED, "dependency_rationale must be an object keyed by dependency story key.", details=(key,))
@@ -527,6 +542,16 @@ class PlannerService:
         missing = sorted(set(flows) - covered)
         if missing:
             raise DridhError(ErrorCode.WORKER_FAILED, "Approved Use Case flows are not covered by implementation stories.", details=tuple(missing))
+        signatures = approved_signatures(
+            reference_text(item["reference_kind"], item["reference_name"]) for item in baseline.get("api_contract", []))
+        for story in normalised:  # after the traceability checks: a card must not restate an approved signature differently
+            for found, approved in contract_conflicts(story, signatures):
+                raise DridhError(
+                    ErrorCode.WORKER_FAILED,
+                    "A story card restates an approved API signature with different parameters. Use the approved signature "
+                    "exactly, or name the operation without parentheses; Python attaches the approved contract to each story.",
+                    details=(story["key"], f"found: {found}", f"approved: {approved}"),
+                )
         for key, story in ((item["key"], item) for item in normalised):
             unknown = sorted(set(story["dependencies"]) - keys)
             if unknown:
@@ -591,10 +616,16 @@ class PlannerService:
             "the supplied canonical CMP IDs and flow-to-component matrix. Do not invent codebase facts. For each story return: key "
             "(unique lowercase slug), component_id, title, description, use_case_ids, flow_ids, todos (ordered strings), acceptance_criteria "
             "(ordered strings), definition_of_done (ordered strings), dependencies (other story keys), dependency_rationale (object keyed "
-            "by every dependency key), file_ownership (explicit relative paths/globs), resource_ownership (shared contracts, schemas, migrations, DBs or environments), infrastructure (boolean) and infrastructure_rationale. "
+            "by every dependency key), file_ownership (project-relative paths or globs only, such as src/app/orders.py or tests/**, with no "
+            "notes, spaces, parentheses or commas; ownership is per file, so to limit a story to part of a file say which part in its todos "
+            "or definition_of_done), resource_ownership (shared contracts, schemas, migrations, DBs or environments), infrastructure (boolean) and infrastructure_rationale. "
             "Every story, including infrastructure stories, MUST set component_id to exactly one supplied CMP ID; it is never null or omitted. For cross-cutting infrastructure work choose the supplied component that owns or is most affected by it. "
             "Use infrastructure=true only for genuine cross-cutting setup/operations with no UC/flow mapping. Also return summary, blockers "
-            "and project_structure {summary, recommendations}. Do not silently resolve ambiguities; list genuine blockers explicitly."
+            "and project_structure {summary, recommendations}. Do not silently resolve ambiguities; list genuine blockers explicitly. "
+            "The approved API and event references are supplied as api_contract. Python attaches each story's approved contract to the "
+            "story the Executor receives, so a card must not restate a signature with different parameters (that is rejected), and must "
+            "not tell the Executor to consult the TDD or use case document, which it cannot read. Name an operation without parentheses, "
+            "or copy its approved signature exactly."
         ]
         code_index = baseline.get("code_index", {})
         if not code_index.get("required", False):
@@ -1832,19 +1863,33 @@ class PlannerService:
         with StateStore(self.workspace.state_db, self.workspace.workspace_id) as store:
             rows = {r["story_id"]: r["status"] for r in store.connection.execute(
                 "SELECT story_id, status FROM story WHERE workspace_id=?", (self.workspace.workspace_id,))}
+            api_events = self._approved_api_events(store.connection, payload)
         by_key = {item["key"]: item for item in payload["indexer"]["stories"]}
         result = []
         for key in payload["indexer"]["order"]:
             item = by_key[key]
             result.append({
                 "story_id": ids[key], "key": key, "title": item["title"], "description": item.get("description", ""),
-                "component_id": item["component_id"], "use_case_ids": item["use_case_ids"],
+                "component_id": item["component_id"], "use_case_ids": item["use_case_ids"], "flow_ids": item.get("flow_ids", []),
+                "approved_contract": story_contract(item, api_events),
                 "todos": item["todos"], "acceptance_criteria": item["acceptance_criteria"],
                 "definition_of_done": item["definition_of_done"], "file_ownership": item["file_ownership"],
                 "infrastructure": bool(item.get("infrastructure")),
                 "dependencies": [ids[dep] for dep in item["dependencies"]], "status": rows.get(ids[key], "NOT_STARTED"),
             })
         return result
+
+    def _approved_api_events(self, connection: Any, payload: dict[str, Any]) -> tuple[Any, ...]:
+        """The API/event references of the TDD revision this plan is bound to (not the latest revision), read from the
+        stored revision content. Empty when that revision is not stored, so an older plan still executes as before."""
+        revision_id = (payload.get("source") or {}).get("tdd_revision_id")
+        if not revision_id:
+            return ()
+        try:
+            content = DocumentRepository(connection, self.workspace.workspace_id).stored_content(revision_id)
+        except DridhError:
+            return ()
+        return parse_tdd_model(content).api_events if content else ()
 
     def update_story_statuses(self, session_id: str, statuses: dict[str, str], *, actor: str) -> None:
         """Set story statuses in SQLite (the authority), then refresh the Markdown projections."""
