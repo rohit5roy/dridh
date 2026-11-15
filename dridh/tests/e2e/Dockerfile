@@ -64,11 +64,15 @@ RUN cd /opt/opencode-cli \
 # ---- runtime image for the scenario
 FROM runtime-base AS e2e
 
-RUN groupadd --gid 10001 e2e \
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends tmux fonts-dejavu-core \
+ && rm -rf /var/lib/apt/lists/* \
+ && groupadd --gid 10001 e2e \
  && useradd --uid 10001 --gid 10001 --create-home --shell /bin/bash e2e \
  && python3 -m venv /opt/dridh/venv
 COPY --from=build /dist/ /opt/dridh/wheels/
 RUN /opt/dridh/venv/bin/pip install --no-cache-dir /opt/dridh/wheels/*.whl \
+ && /opt/dridh/venv/bin/pip install --no-cache-dir "pillow==13.0.0" \
  && /opt/dridh/venv/bin/dridh --version
 COPY --from=opencode /opt/opencode-cli /opt/opencode-cli
 COPY dridh/tests/e2e /opt/e2e

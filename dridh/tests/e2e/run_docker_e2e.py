@@ -6,7 +6,7 @@ Steps owned by this runner: E2E-01 (image build), E2E-02 (isolated start), E2E-3
 and E2E-34 (evidence export and manifest). The in-container scenario owns E2E-03 to
 E2E-31.
 
-Exit status is 0 only when all 46 mandatory IDs are present and PASS. A missing
+Exit status is 0 only when all 47 mandatory IDs are present and PASS. A missing
 check, a failed check, a failed build or a timeout all return non-zero. The runner
 removes only containers, images and networks that carry this run's label or name.
 """
@@ -25,7 +25,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-MANDATORY_IDS = tuple(f"E2E-{number:02d}" for number in range(1, 47))
+MANDATORY_IDS = tuple(f"E2E-{number:02d}" for number in range(1, 48))
 RUNNER_OWNED = ("E2E-01", "E2E-02", "E2E-32", "E2E-33", "E2E-34")
 SCENARIO_TIMEOUT_SECONDS = 2400
 BUILD_TIMEOUT_SECONDS = 1800

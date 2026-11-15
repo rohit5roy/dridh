@@ -4,8 +4,7 @@
 # workflow installs the newest @opencode/cli (and, for the plugin build, @opencode/plugin) from npm and runs, against it:
 #   - the plugin tests (all of tests/*.test.mjs) built with the newest plugin SDK,
 #   - the whole Category A suite (as ci.yml, including the real Docker container tests),
-#   - the TUI smoke test: the packaged wheel installed, the newest OpenCode driven through a first run, screenshots kept.
-# The Docker full-system E2E is not repeated here: its image installs the pinned OpenCode by design.
+#   - a first-run TUI smoke journey and screenshots on the newest CLI (non-gating).
 #
 # It is never a merge gate. A failure means the newest OpenCode breaks Dridh: GitHub emails the repository owner about a
 # failed scheduled run, and the job summary names the versions. When it passes on a release newer than the pin, move the
@@ -116,7 +115,7 @@ jobs:
           uv run pytest -m "not live and not docker" -q -rs
 
   tui-smoke:
-    name: TUI smoke test in the newest OpenCode
+    name: First-run TUI on newest OpenCode (non-gating)
     needs: versions
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -128,22 +127,28 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Set up the toolchain
+      - name: Install tmux and screenshot fonts
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y tmux fonts-dejavu-core
+
+      - name: Set up Python
         uses: ./.github/actions/setup
         with:
           node: "true"
 
-      - name: Build and install the wheel as a release would ship it (plugin built with the pinned SDK)
+      - name: Build the plugin and install the wheel
         shell: bash
         run: |
           set -euo pipefail
-          command -v tmux >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq tmux; }
           (cd dridh/opencode/plugins/dridh-bridge && npm ci --no-audit --no-fund && npm run build)
           (cd dridh && uv run python scripts/build_assets.py && DRIDH_SKIP_ASSET_BUILD=1 uv build --wheel --out-dir "$RUNNER_TEMP/dist")
           python3 -m venv "$RUNNER_TEMP/tui-venv"
           "$RUNNER_TEMP/tui-venv/bin/python" -m pip install --quiet "$RUNNER_TEMP"/dist/dridh-*.whl
 
-      - name: Install the newest OpenCode CLI
+      - name: Install newest OpenCode CLI
         shell: bash
         run: |
           set -euo pipefail
@@ -151,25 +156,26 @@ jobs:
           cd "$RUNNER_TEMP/opencode-latest"
           npm init -y >/dev/null
           npm install --no-audit --no-fund "@opencode/cli@$CLI"
+          ./node_modules/.bin/opencode --version
 
-      - name: First run in the newest OpenCode
+      - name: Run first-run TUI smoke (no model provider)
         shell: bash
         run: |
           set -euo pipefail
-          uv run --no-project --quiet --with pillow==13.0.0 python .github/scripts/tui_smoke.py \
+          uv run --no-project --with pillow==13.0.0 python dridh/tests/e2e/tui_smoke.py \
             --opencode "$RUNNER_TEMP/opencode-latest/node_modules/.bin/opencode" \
-            --dridh "$RUNNER_TEMP/tui-venv/bin/dridh" --out "$RUNNER_TEMP/tui-smoke" | tee -a "$GITHUB_STEP_SUMMARY"
+            --dridh "$RUNNER_TEMP/tui-venv/bin/dridh" \
+            --out "$RUNNER_TEMP/tui-smoke" --first-run-only
 
-      - name: Scan the screens for credential material
+      - name: Scan TUI evidence for credential material
         if: always()
         shell: bash
         run: python3 .github/scripts/scan_secrets.py --paths "$RUNNER_TEMP/tui-smoke"
 
-      - name: Upload the screenshots
+      - name: Upload TUI screenshots and logs
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: tui-smoke-screens-opencode-latest
+          name: opencode-latest-tui-smoke
           path: ${{ runner.temp }}/tui-smoke
           if-no-files-found: warn
-          retention-days: 30

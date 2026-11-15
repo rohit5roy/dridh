@@ -28,6 +28,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pty_confirm import run_with_typed_confirmation  # noqa: E402
+from tui_smoke_contract import FULL_REQUIRED_SCREENSHOTS, validate_tui_evidence  # noqa: E402
 
 WORK = Path("/work")
 HOME = WORK / "home"
@@ -651,6 +652,7 @@ def main() -> int:
     phase13_planner_checks()
     code_reacher_checks()
     worktree_permission_checks()
+    tui_smoke_step()
 
     # Results
     passed = sum(1 for r in RESULTS if r["status"] == "PASS")
@@ -666,6 +668,88 @@ def main() -> int:
     if STUB is not None and STUB.poll() is None:
         os.killpg(STUB.pid, signal.SIGTERM)
     return 0 if RESULTS and all(r["status"] == "PASS" for r in RESULTS) else 1
+
+
+def tui_smoke_step() -> None:
+    """Drive the packaged install through the real terminal UI and retain its screen evidence."""
+    output = EVIDENCE / "tui-screens"
+    project = PROJECTS / "phase13-planner"
+    try:
+        review = prepare_tui_review(project)
+    except Exception as exc:  # noqa: BLE001 - report fixture failures as a mandatory E2E check
+        record("E2E-47", "Packaged Dridh drives the real OpenCode TUI and captures populated lifecycle views", False,
+               f"could not prepare review fixture: {type(exc).__name__}: {exc}")
+        return
+    completed = subprocess.run(
+        [str(Path(DRIDH).with_name("python")), "/opt/e2e/tui_smoke.py", "--opencode", OPENCODE,
+         "--dridh", DRIDH, "--out", str(output), "--feature-project", str(project)],
+        env=base_env(), capture_output=True, text=True, timeout=900, check=False,
+    )
+    (EVIDENCE / "tui-smoke.log").write_text(completed.stdout + completed.stderr, encoding="utf-8")
+    steps_path = output / "steps.json"
+    try:
+        manifest = json.loads(steps_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        manifest = {}
+    evidence = validate_tui_evidence(output, manifest, exit_code=completed.returncode,
+                                     required_screenshots=FULL_REQUIRED_SCREENSHOTS)
+    passed = evidence["passed"]
+    record(
+        "E2E-47",
+        "Packaged Dridh drives the real OpenCode TUI and captures populated lifecycle views",
+        passed,
+        {"review_fixture": review, "exit_code": completed.returncode, **evidence,
+         "log_tail": (completed.stdout + completed.stderr)[-800:]},
+    )
+
+
+def prepare_tui_review(project: Path) -> dict[str, Any]:
+    """Give the seeded project an open, partly checked review so checklist UI has meaningful content."""
+    from planner_test_helpers import IDEATOR_SESSION
+
+    from dridh.ideator.service import CHECKLIST, IdeatorService
+    from dridh.ledger.drafts import LEDGER_PATH, add_drafts
+    from dridh.ledger.flows import approved_flows, story_flows
+    from dridh.state.documents import DocumentRepository
+    from dridh.state.reviews import ReviewRepository
+    from dridh.state.store import StateStore
+    from dridh.workspace.layout import open_workspace
+
+    info = open_workspace(project)
+    with StateStore(info.state_db, info.workspace_id) as store, store.transaction() as connection:
+        documents = DocumentRepository(connection, info.workspace_id)
+        metadata = documents.document_metadata("001-USE-CASES.md")
+        revision = documents.current_revision("001-USE-CASES.md")
+        if metadata is None or revision is None:
+            raise RuntimeError("the Phase 13 fixture has no current Use Cases revision")
+        repository = ReviewRepository(connection, info.workspace_id)
+        review_id = repository.create_review(document_id=str(metadata["id"]), revision_id=revision.id,
+                                             reviewer="TUI smoke fixture", actor="test:tui-smoke")
+        for index, item in enumerate(CHECKLIST):
+            repository.set_checklist(review_id, item, index < 2, actor="human:tui-smoke")
+    ideator = IdeatorService(info)
+    payload = ideator._load(IDEATOR_SESSION)
+    payload["review_id"] = review_id
+    payload["generated"]["review_id"] = review_id
+    ideator._save(payload)
+    with StateStore(info.state_db, info.workspace_id) as store:
+        connection = store.read()
+        flows = approved_flows(connection, info.workspace_id)
+        ownership = story_flows(connection, info.workspace_id)
+    flow = next(iter(flows), None)
+    story = next((story_id for story_id, owned in ownership.items() if flow in owned), None)
+    if flow is None or story is None:
+        raise RuntimeError("the Phase 13 fixture has no story linked to an approved flow")
+    # E2E-46 imports a legacy-format ledger from the project root. Carry that row into the workspace ledger so this
+    # additional screenshot-only draft gets the next deterministic ID rather than colliding with the existing LDG-01.
+    canonical_ledger = project / LEDGER_PATH
+    canonical_ledger.parent.mkdir(parents=True, exist_ok=True)
+    canonical_ledger.write_text((project / "LEDGER.md").read_text(encoding="utf-8"), encoding="utf-8")
+    ledger = add_drafts(info, [{"flow": flow, "status": "NOT_DONE", "story": story,
+                                "actual": "Deferred in the screenshot fixture.",
+                                "reason": "Synthetic review item for the TUI screenshot only."}])
+    return {"review_id": review_id, "total": len(CHECKLIST), "ticked": min(2, len(CHECKLIST)),
+            "flow": flow, "story": story, "ledger": (ledger.get("written") or [None])[0]}
 
 
 
@@ -889,6 +973,7 @@ def phase13_planner_checks() -> None:
             ledger_detail = f"{type(exc).__name__}: {exc}"
     record("E2E-46", "Ledger import, reconciliation, drift detection and repair work from the packaged install", ledger_ok, ledger_detail)
     FACTS["phase13_planner"] = {
+        "project": str(project),
         "session_id": session_id,
         "status": generated and generated.get("status"),
         "gate_unlocked": gate_ok,
