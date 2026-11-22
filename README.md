@@ -101,6 +101,10 @@ The plugin adds Dridh to OpenCode's terminal interface without modifying OpenCod
 
 ![The document reviewer in OpenCode's session panel, rendered by glow](docs/images/opencode-panel-reviewer.png)
 
+![The Coverage view: every approved flow with its story, state and proof, and the selected flow's ledger entry opened with g](docs/images/opencode-coverage-ledger.png)
+
+![The Metrics view: stories and runs, and the Models by agent table showing which model each agent uses and why](docs/images/opencode-metrics-models.png)
+
 ## Everyday commands
 
 | | |

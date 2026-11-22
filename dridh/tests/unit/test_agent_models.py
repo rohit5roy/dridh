@@ -70,5 +70,5 @@ def test_the_metrics_tables_show_models_by_agent() -> None:
     report = {"models": [{"agent": "dridh/executor", "stage": "executor", "model": "m/cheap", "source": "dridh.yaml",
                           "runs": 3, "last_model": "m/cheap", "last_at": None}]}
     table = next(t for t in build(report)["tables"] if t["title"] == "Models by agent")
-    assert table["rows"] == [["executor", "executor", "m/cheap", "dridh.yaml", "3", "m/cheap"]]
+    assert table["rows"] == [["executor", "executor", "m/cheap", "dridh.yaml", "3", "same"]]
     assert table["lines"][0].split() == ["Agent", "Stage", "Model", "Why", "Runs", "Last", "run", "on"]
