@@ -318,6 +318,7 @@ def main() -> int:
             "ideator.md",
             "planner.md",
             "technical-designer.md",
+            "workers/code-summarizer.md",
             "workers/designer-doc-generator.md",
             "workers/designer-handoff.md",
             "workers/designer-inquirer.md",
