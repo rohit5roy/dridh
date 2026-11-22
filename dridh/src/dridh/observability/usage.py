@@ -17,7 +17,6 @@ still exact, so cost can be computed from a price list.
 from __future__ import annotations
 
 import json
-import os
 import re
 from collections.abc import Iterable
 from datetime import UTC, datetime
@@ -28,7 +27,7 @@ USAGE_LOG = Path(".opencode") / "dridh" / "logs" / "usage.jsonl"
 COUNTERS = ("input", "output", "reasoning", "cache_read", "cache_write")
 _STORY = re.compile(r"^Dridh Executor (\S+)$")
 _STAGES = (("ideator", "ideator"), ("designer", "designer"), ("technical-designer", "designer"), ("planner", "planner"),
-           ("executor", "executor"), ("coordinator", "coordinator"), ("code-reacher", "code-reacher"))
+           ("executor", "executor"), ("coordinator", "coordinator"), ("code-reacher", "code-reacher"), ("code-summarizer", "code-reacher"))
 
 
 def _number(value: object) -> float:
@@ -94,9 +93,12 @@ def record_usage(project_root: str | Path, *, agent: str, model: str | None, ses
             return
         path.parent.mkdir(parents=True, exist_ok=True)
         story = _STORY.match(title or "")
+        from dridh.observability.models import SOURCES, resolve
+
+        resolved, source = resolve(project_root, agent, model)
         entry = {
             "at": datetime.now(UTC).isoformat(timespec="seconds"), "agent": agent, "stage": stage_of(agent),
-            "model": model or os.environ.get("DRIDH_USAGE_MODEL_LABEL") or "opencode-default", "session_id": session_id,
+            "model": resolved, "model_source": SOURCES[source], "session_id": session_id,
             "story_id": story.group(1) if story else None, "outcome": outcome, "resumed": bool(resumed),
             "duration_seconds": round(float(duration_seconds), 3), **usage,
         }

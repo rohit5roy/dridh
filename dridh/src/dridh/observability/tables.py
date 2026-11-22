@@ -14,6 +14,10 @@ NOT_COUNTED = ("The Coordinator's own conversation runs in OpenCode, not through
                "`opencode stats --project .` shows it.")
 
 
+MODELS_NOTE = ("Why: where the model comes from (a model chosen for the run, the agent profile's model:, OpenCode's "
+               "configuration or dridh.yaml). Change it in opencode.json or with models: in .opencode/dridh/dridh.yaml.")
+
+
 def ago(seconds: int | float | None) -> str:
     """``95`` -> ``1 min ago``; None -> ``–``."""
     if seconds is None:
@@ -125,6 +129,12 @@ def build(report: dict[str, Any]) -> dict[str, Any]:
             ["Runs", _counts_row(ex.get("runs"))],
             ["Checkpoint lots", _counts_row(ex.get("lots"))],
         ]))
+    models = report.get("models")
+    if isinstance(models, list) and models:
+        tables.append(table("Models by agent", ["Agent", "Stage", "Model", "Why", "Runs", "Last run on"],
+                            [[m["agent"].removeprefix("dridh/"), _label(m["stage"]), m["model"], m["source"], m["runs"],
+                              (m["last_model"] or DASH) if m["runs"] else DASH] for m in models],
+                            numeric=(4,), note=MODELS_NOTE))
     tables += _usage_tables(report.get("usage") or {})
     rv, de, ledger, jev = (report.get(k) or {} for k in ("reviews", "delivery", "ledger", "jev"))
     quality = []
@@ -145,6 +155,7 @@ def build(report: dict[str, Any]) -> dict[str, Any]:
         if cr.get("indexed"):
             system += [["Code index", f"{cr['indexed_files']} of {cr['files']} files, built in {duration(cr['index_seconds'])}"],
                        ["Indexed", ago(cr["age_seconds"]) + (" (stale: run `dridh index`)" if cr.get("stale") else "")],
+                       ["Code summaries", f"{cr.get('summaries', 0)} entities (`dridh code summarize` adds them for code with few doc comments)"],
                        ["Failed index runs", cr["failed_runs"]]]
         else:
             system.append(["Code index", "not indexed"])

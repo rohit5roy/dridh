@@ -621,6 +621,12 @@ export default Plugin.define({
                   <text>{state().metrics}<span style={{ fg: c.muted }}>{"   m all metrics"}</span></text>
                 </box>
               </Show>
+              <Show when={state()?.models}>
+                <box flexDirection="column">
+                  <text fg={c.muted}>MODELS</text>
+                  <text>{String(state().models).replace(/^Models: /, "")}<span style={{ fg: c.muted }}>{"   m per agent"}</span></text>
+                </box>
+              </Show>
               <Show when={feature().blockers?.length && feature().stage !== "COMPLETED"}>
                 <box flexDirection="column">
                   <text fg={c.muted}>BLOCKERS</text>
@@ -1017,6 +1023,7 @@ export default Plugin.define({
       const [view, setView] = createSignal<Json>(undefined)
       const [problem, setProblem] = createSignal<string>()
       const [index, setIndex] = createSignal(0)
+      const [entry, setEntry] = createSignal(false)  // g: the detail pane shows the row's whole ledger entry
       const load = () => busyWith("reading coverage", () => dridhJson(["ui", "coverage"], root())).then((v) => { setView(v); setProblem(undefined) })
         .catch((e) => setProblem((e as Error).message))
       void load()
@@ -1026,12 +1033,22 @@ export default Plugin.define({
       const cols = () => (props.narrow ? 5 : 6)
       const cell = (value: string, i: number) => String(value ?? "").padEnd(view()?.widths?.[i] ?? 0)
       const line = (r: Json) => [r.flow, r.type, r.story, r.label, r.proof, r.code].slice(0, cols())
+      const hints = () => {
+        const d = selected()?.detail ?? {}
+        return ["j/k flow", d.lot ? `enter lot ${d.lot.lot} (diff)` : "", d.ledger_entry ? `g ${entry() ? "back" : d.ledger}` : "",
+          d.awaiting ? `a approve ${d.ledger}…` : "", "r refresh", "same matrix: dridh coverage"].filter(Boolean).join(" · ")
+      }
       useKeyboard((key) => {
         if (!props.active()) return
         if (key.name === "r") return void load()
         if (key.name === "down" || key.name === "j") return setIndex((i) => Math.min(rows().length - 1, i + 1))
         if (key.name === "up" || key.name === "k") return setIndex((i) => Math.max(0, i - 1))
         const row = selected()
+        if ((key.name === "return" || key.name === "enter") && row?.detail?.lot) return show({ name: "lot", data: { run: row.detail.lot.run, lot: row.detail.lot.lot } })
+        if (key.name === "g") {
+          if (row?.detail?.ledger_entry) return setEntry((v) => !v)
+          return ctx.ui.toast.show({ message: `${row?.flow ?? "This flow"} has no ledger entry.`, variant: "info" })
+        }
         if (key.name === "a" && row?.detail?.awaiting) {
           return void (async () => {
             const name = await reviewer()
@@ -1047,15 +1064,25 @@ export default Plugin.define({
           <Show when={view().total} fallback={<text fg={c.muted}>No approved flows yet: coverage starts once the use cases are approved.</text>}>
             <box flexDirection="column" flexGrow={1}>
               <box flexShrink={0}><text><b>{view().summary}</b></text></box>
-              <box flexShrink={0}><text fg={c.muted}>{"j/k flow · r refresh" + (selected()?.detail?.awaiting ? ` · a approve ${selected().detail.ledger}…` : "") + " · same matrix: dridh coverage"}</text></box>
+              <box flexShrink={0}><text fg={c.muted}>{hints()}</text></box>
               <Show when={selected()}>
                 <box flexDirection="column" border borderColor={c.border} paddingLeft={1} paddingRight={1} flexShrink={0}>
                   <text><b>{selected().flow}</b><span style={{ fg: c.muted }}>{` ${selected().type} · ${selected().story} (${selected().story_status})`}</span></text>
                   <text>{selected().detail.text}</text>
                   <Show when={selected().detail.contract.length}><text fg={c.muted}>contract  <span style={{ fg: c.text }}>{selected().detail.contract.join("; ")}</span></text></Show>
                   <text fg={c.muted}>tests     <span style={{ fg: c.text }}>{selected().detail.tests.length ? selected().detail.tests.slice(0, 3).join(", ") : "–"}</span></text>
-                  <text fg={c.muted}>code      <span style={{ fg: c.text }}>{selected().detail.code.length ? selected().detail.code.slice(0, 4).join(", ") : "–"}</span></text>
+                  <text fg={c.muted}>{selected().detail.code_source === "owned" ? "owns      " : "code      "}<span style={{ fg: c.text }}>{selected().detail.code.length ? selected().detail.code.slice(0, 4).join(", ") : "–"}</span>{selected().detail.code_source === "owned" ? "  (planned: no code mapped yet)" : ""}</text>
+                  <Show when={selected().detail.lot}><text fg={c.muted}>lot       <span style={{ fg: c.text }}>{`lot ${selected().detail.lot.lot} of run ${String(selected().detail.lot.run).slice(0, 8)} · ${String(selected().detail.lot.status).toLowerCase().replace(/_/g, " ")}`}</span></text></Show>
                   <Show when={selected().detail.ledger}><text fg={c.muted}>ledger    <span style={{ fg: tone(selected().tone) }}>{selected().proof}</span>{selected().detail.note ? `  "${selected().detail.note}"` : ""}</text></Show>
+                  <Show when={entry() && selected().detail.ledger_entry}>
+                    <box flexDirection="column" paddingTop={1}>
+                      <text><b>{`${selected().detail.ledger} ${selected().detail.ledger_entry.title}`}</b></text>
+                      <text fg={c.muted}>required  <span style={{ fg: c.text }}>{selected().detail.ledger_entry.original_requirement}</span></text>
+                      <text fg={c.muted}>actual    <span style={{ fg: c.text }}>{selected().detail.ledger_entry.actual_behavior}</span></text>
+                      <text fg={c.muted}>why       <span style={{ fg: c.text }}>{selected().detail.ledger_entry.justification}</span></text>
+                      <text fg={c.muted}>decision  <span style={{ fg: c.text }}>{selected().detail.ledger_entry.decision ? `${selected().detail.ledger_entry.decision.decision} by ${selected().detail.ledger_entry.decision.reviewer} (${selected().detail.ledger_entry.decision.decided_at})` : "none yet"}</span></text>
+                    </box>
+                  </Show>
                 </box>
               </Show>
               <box flexDirection="column" flexGrow={1} flexShrink={1} minHeight={4}>

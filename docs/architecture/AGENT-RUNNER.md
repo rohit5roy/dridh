@@ -24,6 +24,22 @@ result = await runner.run(
 )
 ```
 
+### Which model a run uses
+
+When `model` is `None`, OpenCode chooses, and Dridh reports its choice the way OpenCode makes it
+(`dridh/src/dridh/observability/models.py`):
+
+1. the model passed for the run;
+2. the agent profile's `model:`;
+3. the `model` in `OPENCODE_CONFIG_CONTENT`, the project's `opencode.json(c)`, then the user's configuration;
+4. `dridh.yaml` `models.provider`/`models.default` (passed to OpenCode by `dridh start`);
+5. otherwise "OpenCode default".
+
+OpenCode's JSON events do not name the model a step ran on. Each run's usage record therefore stores the model and
+the source this resolution gave at the time (`model`, `model_source`). `dridh observe` and the panel's Metrics tab
+show a "Models by agent" table, with the model each agent uses now, why, its runs, and the model of its last run. The
+panel overview has a one-line `MODELS` summary.
+
 `AgentRunResult` contains `agent`, `prompt`, `session_id`, `text`, `exit_code`,
 `duration_seconds`, `events`, `stderr` and `resumed`.
 

@@ -120,7 +120,7 @@ def test_the_report_is_tables_with_readable_values_never_raw_ones(info):
                      usage={"steps": 1, "input": 400_000, "output": 20_000, "reasoning": 0, "cache_read": 0, "cache_write": 0, "cost": 0.0041})
     built = build(collect(info))
     titles = [t["title"] for t in built["tables"]]
-    assert titles[:3] == ["Features", "Execution", "Model usage by stage"] and "Model usage by model" in titles and "System" in titles
+    assert titles[:4] == ["Features", "Execution", "Models by agent", "Model usage by stage"] and "Model usage by model" in titles and "System" in titles
     usage = next(t for t in built["tables"] if t["title"] == "Model usage by stage")
     assert usage["columns"][:4] == ["Stage", "Runs", "Failed", "Tokens"]
     assert usage["rows"][-1][:4] == ["all agent runs", "3", "1", "1.3M"] and "$0.0123" in usage["rows"][-1]

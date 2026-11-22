@@ -33,6 +33,7 @@ ROSTER: tuple[AgentProfile, ...] = (
     AgentProfile("dridh/workers/planner-indexer", "Central Plan Indexer", "subagent", False, "Maps approved Use Cases and TDD components into a traceable story DAG."),
     AgentProfile("dridh/workers/planner-component", "Component Planner", "subagent", False, "Produces component boundaries, story ownership and component-level plan details."),
     AgentProfile("dridh/workers/planner-testing", "Testing Planner", "subagent", False, "Produces Table 15 test phases using real dependencies and justified fallback modes only."),
+    AgentProfile("dridh/workers/code-summarizer", "Code Summarizer", "subagent", False, "Writes one-sentence summaries of code with few doc comments for the code index; run only by `dridh code summarize`."),
     AgentProfile("dridh/designer", "Designer", "subagent", False, "Legacy generic design profile retained for compatibility."),
     AgentProfile("dridh/documents", "Documents", "subagent", False, "Drafts and validates structured documents. Defined for later phases."),
     AgentProfile("dridh/executor", "Executor", "subagent", False, "Implements one story of a human-approved plan inside its own worktree. Started only by the run controller after a typed per-run confirmation; never schedulable by the generic task engine."),

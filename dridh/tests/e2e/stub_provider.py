@@ -133,6 +133,7 @@ def _role(system: str) -> str:
         "dridh/workers/planner-indexer",
         "dridh/workers/planner-component",
         "dridh/workers/planner-testing",
+        "dridh/workers/code-summarizer",
         "dridh/planner",
         "dridh/code-reacher",
         "dridh/executor",
@@ -290,6 +291,9 @@ def decide(request: dict) -> dict:
         return {"content": json.dumps(_phase13_component(user_text))}
     if role == "dridh/workers/planner-testing":
         return {"content": json.dumps(_phase13_testing(user_text))}
+    if role == "dridh/workers/code-summarizer":  # one sentence per entity asked for, ids copied
+        entities = _json_after_marker(user_text, "INPUT:").get("entities", []) if "INPUT:" in user_text else []
+        return {"content": json.dumps({"summaries": [{"id": e["id"], "summary": f"Scripted summary of {e['name']}."} for e in entities]})}
     if role == "dridh/planner":
         return {"content": json.dumps(PLAN)}
 

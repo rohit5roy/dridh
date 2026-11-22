@@ -77,6 +77,7 @@ def test_nested_worker_profiles_are_installed_and_idempotent(tmp_path: Path, sou
     workers = agents / "workers"
     workers.mkdir()
     expected = (
+        "code-summarizer.md",
         "designer-inquirer.md",
         "designer-doc-generator.md",
         "designer-handoff.md",

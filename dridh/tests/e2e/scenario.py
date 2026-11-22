@@ -40,7 +40,7 @@ STUB_LOG = EVIDENCE / "stub-requests.jsonl"
 STUB_PORT = 18090
 DRIDH = os.environ["DRIDH_BIN"]
 OPENCODE = os.environ["DRIDH_OPENCODE_BIN"]
-OPENCODE_VERSION = "opencode v2.2.6"  # the lock-pinned CI version (.github/scripts/opencode-cli); Dridh supports >= 2.2.5
+OPENCODE_VERSION = "opencode v2.3.2"  # the lock-pinned CI version (.github/scripts/opencode-cli); Dridh supports >= 2.2.5
 OBJECTIVE = "Create a greeting function with tests"
 DRIDH_BRIDGE_PATTERN = "/opt/dridh/venv/bin/dridh bridge"
 WORKER_PATTERN = "dridh/code-reacher"
@@ -279,7 +279,7 @@ def main() -> int:
     env = base_env()
 
     # Environment and versions (steps 3-5)
-    check("E2E-03", "OpenCode CLI is the lock-pinned 2.2.6", lambda: (
+    check("E2E-03", "OpenCode CLI is the lock-pinned 2.3.2", lambda: (
         (run([OPENCODE, "--version"], env=env).stdout.strip() == OPENCODE_VERSION, run([OPENCODE, "--version"], env=env).stdout.strip())
     ))
     versions = {

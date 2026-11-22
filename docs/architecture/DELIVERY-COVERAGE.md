@@ -65,3 +65,11 @@ with a message saying how to re-run the story or record the flow in the ledger.
 
 `dridh coverage` (or the Coverage tab in the OpenCode panel, `/dridh-coverage`) shows every approved flow with its
 story, its state, the test that proves it or the ledger entry that explains it, and its code, grouped by use case.
+
+The Code column shows the files mapped to the story once its code is delivered and mapped. Before that it shows the
+files the story owns in the plan, marked `owns`, so a flow's future location is visible from the start.
+
+In the panel, `j`/`k` selects a flow and its detail opens above the matrix: the flow text, the approved contract, the
+proving tests, the code, the story's execution lot and the ledger entry. `enter` opens the story's lot, with its diff,
+in the Lots tab. `g` shows the whole ledger entry: the original requirement, the actual behaviour, the reason, and the
+decision with its reviewer. `a` approves a waiting deviation through the typed confirmation in a real terminal.

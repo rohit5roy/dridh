@@ -71,11 +71,15 @@ def test_a_successful_run_returns_its_usage_and_logs_one_line_without_any_text(p
 
 def test_a_failed_run_is_still_charged(project, fake, monkeypatch) -> None:
     monkeypatch.setenv("FAKE_EVENTS", json.dumps([_step(500, 0, 0, 0, 0, 0.1)]))  # tokens were spent, but there is no assistant text
+    monkeypatch.setenv("OPENCODE_CONFIG_DIR", str(project / "no-opencode-config"))
+    monkeypatch.delenv("OPENCODE_CONFIG_CONTENT", raising=False)
+    monkeypatch.delenv("DRIDH_USAGE_MODEL_LABEL", raising=False)
     with pytest.raises(AgentRunError) as failure:
         OpenCodeRunner(executable=str(fake), workspace_root=project, timeout=10).run_sync(agent="dridh/workers/planner-indexer", prompt="p")
     assert failure.value.code is AgentErrorCode.MALFORMED_OUTPUT
     (entry,) = read_usage(project)
-    assert entry["outcome"] == "MALFORMED_OUTPUT" and entry["input"] == 500 and entry["stage"] == "planner" and entry["model"] == "opencode-default"
+    assert entry["outcome"] == "MALFORMED_OUTPUT" and entry["input"] == 500 and entry["stage"] == "planner"
+    assert (entry["model"], entry["model_source"]) == ("OpenCode default", "OpenCode chooses")
 
 
 def test_nothing_is_written_outside_a_dridh_workspace(tmp_path, fake, monkeypatch) -> None:

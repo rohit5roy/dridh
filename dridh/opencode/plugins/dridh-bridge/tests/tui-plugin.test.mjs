@@ -121,6 +121,17 @@ test("the completion matrix is one key, one command and one tab away, and a wait
   assert.match(source, /<Show when=\{state\(\)\?\.coverage\}>[\s\S]{0,300}v every flow/, "the overview shows the coverage line")
 })
 
+test("a coverage row leads to its story's lot (enter) and to its whole ledger entry (g)", () => {
+  assert.match(source, /key\.name === "return" \|\| key\.name === "enter"\) && row\?\.detail\?\.lot\) return show\(\{ name: "lot", data: \{ run: row\.detail\.lot\.run, lot: row\.detail\.lot\.lot \} \}\)/)
+  assert.match(source, /if \(key\.name === "g"\) \{\s*if \(row\?\.detail\?\.ledger_entry\) return setEntry/)
+  assert.match(source, /selected\(\)\.detail\.ledger_entry\.justification/, "the entry shows why the flow deviates")
+  assert.match(source, /code_source === "owned" \? "owns      "/, "before code is mapped the detail says which files the story owns")
+})
+
+test("the overview says which model the agents use; the Metrics tab has each agent", () => {
+  assert.match(source, /<Show when=\{state\(\)\?\.models\}>[\s\S]{0,300}m per agent/)
+})
+
 test("before the first feature the TUI shows the setup steps and one next action", () => {
   assert.ok(source.includes("Setup · step"), "the overview shows which step setup is at")
   assert.match(source, /`dridh · \$\{step\} · /, "the status line shows the setup step")
