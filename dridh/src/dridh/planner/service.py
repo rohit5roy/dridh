@@ -647,6 +647,14 @@ class PlannerService:
                 "HUMAN CLARIFICATIONS (apply without changing approved requirements): "
                 + json.dumps(clarifications, ensure_ascii=False)
             )
+        previous = payload.get("previous_indexer")
+        if previous:
+            parts.append(
+                "PREVIOUS PLAN (revise, do not start over): this is your earlier reply, before the clarifications above. "
+                "Keep every story, key, todo and dependency that the clarifications do not affect exactly as it is; change only "
+                "what they resolve or require, and drop each blocker they answer. Return the whole revised plan in the same "
+                "format.\n" + json.dumps(previous, ensure_ascii=False)
+            )
         # Repeat the canonical ownership matrix outside the full JSON block so the
         # model has an unambiguous, concise authority for CMP IDs and flow mapping.
         component_matrix = [
@@ -683,6 +691,8 @@ class PlannerService:
         if indexer is None:
             return self.status(payload["session_id"])
         payload["indexer"] = indexer
+        payload.pop("previous_indexer", None)
+        payload.pop("pending_clarifications", None)
         blockers = payload["indexer"].get("blockers", [])
         payload["status"] = "BLOCKED" if blockers else "INQUIRY"
         payload["last_error"] = "Central Plan Indexer reported unresolved blockers." if blockers else None
@@ -752,6 +762,7 @@ class PlannerService:
             "test_phases": len((payload.get("testing") or {}).get("phases", [])),
             "indexer_summary": (payload.get("indexer") or {}).get("summary"),
             "indexer_blockers": (payload.get("indexer") or {}).get("blockers", []),
+            "pending_clarifications": bool(payload.get("pending_clarifications")),
             "component_blockers": (payload.get("components") or {}).get("blockers", []),
             "testing_blockers": (payload.get("testing") or {}).get("blockers", []),
             "generated": payload.get("generated"),
@@ -1290,8 +1301,13 @@ class PlannerService:
                     pass
             raise
 
-    def clarify(self, session_id: str, *, question: str, answer: str, source: str = "user", model: str | None = None) -> dict[str, Any]:
-        """Record a human clarification and re-run the indexer in the same resumable session."""
+    def clarify(self, session_id: str, *, question: str, answer: str, source: str = "user", model: str | None = None,
+                rerun: bool = True) -> dict[str, Any]:
+        """Record a human clarification and revise the plan in the same resumable session.
+
+        The indexer revises its previous reply rather than decomposing the design again, so stories the answer does not
+        touch keep their keys. With ``rerun=False`` the answer is only recorded: answer several blockers, then run once with
+        the last answer (or ``generate``), which applies them all in a single indexer pass."""
         if not isinstance(question, str) or not question.strip() or not isinstance(answer, str) or not answer.strip():
             raise DridhError(ErrorCode.VALIDATION_FAILED, "Planner clarification requires non-empty question and answer strings.")
         if not isinstance(source, str) or not source.strip():
@@ -1315,6 +1331,13 @@ class PlannerService:
             self._save(payload)
             raise DridhError(ErrorCode.CONFIGURATION_CONFLICT, "The approved source changed; this Planner session is stale.")
         payload.setdefault("clarifications", []).append({"question": question, "answer": answer, "source": source, "recorded_at": _now()})
+        if not rerun:
+            payload["pending_clarifications"] = True
+            self._save(payload)
+            return self.status(session_id)
+        if payload.get("indexer"):
+            payload["previous_indexer"] = payload["indexer"]  # an earlier failed rerun keeps the plan it started from
+        payload.pop("pending_clarifications", None)
         payload["indexer"] = None
         payload["components"] = None
         payload["testing"] = None
@@ -1340,6 +1363,9 @@ class PlannerService:
                 payload["last_error"] = "The approved source revision changed during planning."
                 self._save(payload)
                 raise DridhError(ErrorCode.CONFIGURATION_CONFLICT, "Planner source baseline changed; TDD/use-case approval is no longer current.")
+        if payload.get("pending_clarifications") and payload.get("indexer"):
+            payload["previous_indexer"] = payload["indexer"]  # answers recorded without a rerun are applied now, once
+            payload["indexer"] = None
         if payload.get("indexer") is None:
             self._run_indexer(payload, source, tdd, use_cases, code_index, model=model)
             if payload.get("indexer") is None:

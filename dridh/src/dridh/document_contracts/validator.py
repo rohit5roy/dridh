@@ -23,6 +23,7 @@ from dridh.document_contracts.markdown import (
     plain,
     split_row,
 )
+from dridh.document_contracts.records import record_findings
 from dridh.document_contracts.registry import ContractBundleError, load_contract_bundle
 
 STANDARDS_VERSION = "2.1.0"
@@ -1123,6 +1124,9 @@ def validate_tdd(content: str, file: str = "tdd.md") -> ValidationResult:
                 for decision in decisions:
                     if decision not in decision_defs:
                         report.error("TDD_UNRESOLVED_DECISION", "Design decision is not defined in this TDD", line=row.line, entity=decision, expected="#### DD-N heading in this TDD", actual=decision)
+    api_cells = [(row.line, row.cells[3].replace("`", "")) for row in (table_13.rows if table_13 is not None else ()) if len(row.cells) > 3]
+    for finding in record_findings(lines, headings, tables, api_cells):
+        report.error(finding["code"], finding["message"], line=finding["line"], entity=finding["entity"], hint=finding["hint"])
     return report.result()
 
 

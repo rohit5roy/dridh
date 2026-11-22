@@ -92,6 +92,8 @@ Every operation name is listed in `protocol.py`. The bridge dispatches a request
 | code reacher | `code_reacher.lookup`, `code_reacher.symbol`, `code_reacher.dependencies`, `code_reacher.index_status`, `code_reacher.index`, `code_reacher.code_for`, `code_reacher.owners` |
 | hook | `hook.context`, `hook.tool_call`, `hook.session_event` |
 
+`planner.clarify` records one answer to an indexer blocker. By default the indexer then revises its previous plan with every answer so far (stories the answers do not touch keep their keys). With `rerun: false` the answer is only recorded, so several blockers can be answered and applied in one indexer pass by the last `planner.clarify` or by `planner.generate`. The CLI flag is `dridh planner clarify --no-rerun`.
+
 `runtime.ping` returns `status`, `bridge_protocol_version` and `workspace_root`. `runtime.info` returns the package and Python version, the runtime location, the operation list and `heavy_dependencies_loaded`.
 
 Rules that the code states:

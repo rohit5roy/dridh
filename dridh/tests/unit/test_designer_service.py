@@ -55,7 +55,7 @@ class Phase12Workers:
                     "data_ownership": "The Order Intake component owns the accepted order record. Storage keys and retention require owner confirmation.",
                     "api_design": "N/A — the current approved scope does not identify a public API contract; confirm with the API owner.",
                     "events": "N/A — no event publication is required by the supplied approved flow; confirm with the integration owner.",
-                    "data_model": "An order record must retain its canonical ID, validation state and creation time. Physical schema and indexes remain OPEN.",
+                    "data_model": "An order record must retain its canonical ID, validation state and creation time. Physical schema and indexes remain OPEN.\n\n| Record | Field | Type |\n|---|---|---|\n| Order | id | string |\n| Order | validation_state | string |\n| Order | created_at | timestamp |",
                     "quality_approach": "Test valid orders, invalid orders, duplicate submission, persistence failure and recovery using real dependencies where possible.",
                     "security_privacy": "Authenticate the submitting customer, authorise access to their orders and protect customer data at rest and in transit.",
                     "monitoring": "Track accepted/rejected counts, validation failures, persistence latency and dependency availability.",
@@ -355,3 +355,46 @@ def test_an_existing_codebase_design_gets_code_reacher_evidence_from_the_index(t
     supplied = DesignerService(info, runner=Phase12Workers())._load  # an explicit caller-supplied evidence string still wins
     other = DesignerService(info, runner=Phase12Workers()).start(ideator_id, feature="other", code_reacher_evidence="Owner-verified facts.")
     assert supplied(other["session_id"])["code_reacher_evidence"] == "Owner-verified facts."
+
+
+@pytest.mark.parametrize("code", ["PROVIDER_FAILURE", "QUOTA_EXHAUSTED", "TIMEOUT"])
+def test_a_provider_failure_in_the_advisory_handoff_keeps_the_generated_tdd(tmp_path: Path, code: str) -> None:
+    """Found in a benchmark: the handoff worker hit a provider error after the TDD was written and saved IN_REVIEW. The
+    error was not a DridhError, so it reached the rollback, which deleted the document and left the session in review
+    with nothing to review. The handoff is advisory: the document stays and the review says the handoff is missing."""
+    from dridh.integrations.opencode import AgentErrorCode, AgentRunError
+
+    _, info = workspace(tmp_path)
+    designer, session_id = complete_designer(info)
+    workers = designer.runner
+
+    class HandoffDown:
+        def run_sync(self, **kwargs):
+            if kwargs["agent"] == "dridh/workers/designer-handoff":
+                raise AgentRunError(AgentErrorCode(code), "the provider is unavailable")
+            return workers.run_sync(**kwargs)
+
+    designer.runner = HandoffDown()
+    generated = designer.generate(session_id, model="m")
+    target = info.project_root / generated["document"]["path"]
+    assert target.is_file() and generated["status"] == "IN_REVIEW"
+    assert validate_tdd(target.read_text(encoding="utf-8")).ok
+    assert generated["handoff"]["summary"].startswith("Automated Handoff review did not complete")
+    assert any(code in concern for concern in generated["handoff"]["concerns"])
+    assert designer.gate(session_id)["unlocked"] is False  # still needs the human review it is waiting for
+
+
+def test_an_interrupted_document_write_still_restores_the_previous_tdd(tmp_path: Path, monkeypatch) -> None:
+    """The rollback stays for what it is for: a failure while the document itself is written or recorded."""
+    from dridh.designer import service as designer_module
+
+    _, info = workspace(tmp_path)
+    designer, session_id = complete_designer(info)
+
+    def broken_write(target, document):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(designer_module, "_atomic_write", broken_write)
+    with pytest.raises(OSError):
+        designer.generate(session_id, model="m")
+    assert not list(info.project_root.glob("*_tdd.md"))  # nothing half-made is left behind

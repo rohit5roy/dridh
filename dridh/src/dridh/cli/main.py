@@ -2175,9 +2175,11 @@ def planner_clarify(
     source: str = typer.Option("user", "--source"),
     project: str = PROJECT_OPTION,
     model: str | None = typer.Option(None, "--model"),
+    rerun: bool = typer.Option(True, "--rerun/--no-rerun", help="Revise the plan now (default), or only record the answer and "
+                               "apply all recorded answers in one pass with the next clarify or `dridh planner generate`."),
 ) -> None:
-    """Record a human clarification and resume the same Planner discovery session."""
-    _emit(_planner(project).clarify(session_id, question=question, answer=answer, source=source, model=model))
+    """Record a human clarification and revise the plan in the same Planner session."""
+    _emit(_planner(project).clarify(session_id, question=question, answer=answer, source=source, model=model, rerun=rerun))
 
 
 @planner_app.command("status")
