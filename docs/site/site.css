@@ -56,8 +56,8 @@ button:active { transform: scale(.97); }
 /* Sections */
 .spec { border-top: 1px solid var(--line); }
 .cols { display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: 32px; padding-top: 80px; padding-bottom: 80px; }
-.label { font: 500 12px/2 var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--dim); }
-.label::before { content: "// "; color: var(--line-strong); }
+.label { font: 700 16px/1.6 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--text); }
+.label::before { content: "// "; color: var(--amber); }
 
 /* Why the name */
 .name { border-top: 0; border-bottom: 1px solid var(--line); }
@@ -248,7 +248,11 @@ button:active { transform: scale(.97); }
 }
 
 /* The workflow pipeline behind the page (assets/pipes.js): fixed, faded, never in the way of reading or clicking */
-.pipes { position: fixed; inset: 0; z-index: -1; width: 100vw; height: 100vh; pointer-events: none; opacity: .9; }
+.pipes { position: fixed; inset: 0; z-index: -1; width: 100vw; height: 100vh; pointer-events: none;
+  /* a backdrop, never a distraction: faint, out of focus, and faintest where the text column is */
+  opacity: .42; filter: blur(1.8px);
+  -webkit-mask-image: linear-gradient(90deg, #0000004d 0%, #0000004d 48%, #000000 88%);
+  mask-image: linear-gradient(90deg, #0000004d 0%, #0000004d 48%, #000000 88%); }
 .hero { position: relative; background-color: transparent; }
 .top { z-index: 10; }
 
