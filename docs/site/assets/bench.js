@@ -55,6 +55,52 @@ const DECIDES = [ // who may do what: [action, agent, you]; true yes, false neve
   ["Complete the feature", false, true],
 ];
 
+const WINS = [ // the four claims, one number each
+  { n: "01", title: "Minimising token waste", value: 0, label: "wasted retries: 0 repairs in 4 stories" },
+  { n: "02", title: "Enforced accuracy", value: 29, of: 29, label: "requirements proven by a named, passing test" },
+  { n: "03", title: "Cheap models deliver", value: 0, prefix: "$", label: "model cost of a working feature" },
+  { n: "04", title: "You are the pilot", value: 0, label: "actions an agent can approve" },
+  { n: "05", title: "Open source, on your machine", value: 0, label: "Dridh servers: search, state and checks run locally" },
+];
+const LOCAL = [ // what runs on your machine
+  { name: "Dridh runtime", note: "stages, gates, checks" },
+  { name: "Code search", note: "index + gte-small model" },
+  { name: "State and documents", note: "SQLite in your project" },
+  { name: "Worktrees and tests", note: "one per story" },
+];
+const OUTSIDE = [ // what leaves it
+  { name: "Your model provider", note: "prompts, through OpenCode, as you set it" },
+  { name: "GitHub", note: "off by default", off: true },
+];
+const LICENCES = [
+  ["Dridh", "AGPL-3.0"], ["OpenCode", "MIT"], ["gte-small", "MIT"], ["FastEmbed", "Apache-2.0"], ["ONNX Runtime", "MIT"],
+  ["SQLite", "public domain"], ["sqlite-vec", "MIT / Apache-2.0"], ["tree-sitter", "MIT"],
+];
+const TOKENS = [ // the free-model run's 2.38 M tokens, from its usage log
+  { name: "cache read", share: 56.2, tokens: "1.34M", tone: "cache" },
+  { name: "input", share: 28.8, tokens: "686k", tone: "input" },
+  { name: "reasoning", share: 9.9, tokens: "237k", tone: "reasoning" },
+  { name: "output", share: 5.0, tokens: "120k", tone: "output" },
+];
+const SCRIPTED = ["documents validated", "contracts matched", "file ownership checked", "flows proven", "delivery checked"];
+const GATES = ["document valid", "contract matches", "tests pass", "flow proven", "you approve"];
+const SMALL_VS_BIG = [ // [measure, gte-small share, gte-modernbert-base share, labels, note]
+  ["search quality", 0.895, 0.912, "gte-small 0.895", "4.5× larger 0.912", "within 0.017"],
+  ["speed", 1, 0.336, "gte-small 1.13×", "0.38×", "3× faster"],
+  ["download", 0.223, 1, "134 MB", "600 MB", "a quarter of the size"],
+];
+const ACCURACY_STATS = [
+  { value: 87.5, decimals: 1, suffix: "%", label: "right function first in code search (Python)" },
+  { value: 17, label: "failure recoveries, each with a test" },
+  { value: 1228, label: "tests run on every change" },
+];
+const VALUE_STATS = [
+  { value: 4, of: 4, label: "stories on the first try" },
+  { value: 82, label: "passing tests delivered" },
+  { value: 26, of: 26, label: "agent runs succeeded" },
+  { value: 35, suffix: " min", label: "agent time, all stages" },
+];
+
 /* ------------------------------------------------------------------ helpers */
 
 const el = (tag, cls, text) => {
@@ -66,7 +112,10 @@ const el = (tag, cls, text) => {
 const fmt = (value, decimals = 3) => value.toFixed(decimals);
 
 function counter(node, to, { decimals = 0, prefix = "", suffix = "", duration = 1100, from = 0 } = {}) {
-  const show = (v) => { node.textContent = `${prefix}${v.toFixed(decimals)}${suffix}`; };
+  const show = (v) => {
+    const text = to >= 1000 ? Math.round(v).toLocaleString("en-US") : v.toFixed(decimals);
+    node.textContent = `${prefix}${text}${suffix}`;
+  };
   if (reduce) return show(to);
   const start = performance.now();
   const step = (now) => {
@@ -200,7 +249,156 @@ function decidesMatrix(host) {
   return () => {};
 }
 
-const CHARTS = { models: modelsChart, text: textVsModelChart, summaries: summariesChart, index: indexChart, run: runPanel, decides: decidesMatrix };
+function winsBand(host) {
+  const nums = WINS.map((w) => {
+    const cell = el("a", "win-num");
+    cell.href = `#win-${w.n}`;
+    const big = el("strong", "", "0");
+    cell.append(el("small", "", `${w.n} · ${w.title}`), big, el("span", "", w.label));
+    host.append(cell);
+    return big;
+  });
+  return () => WINS.forEach((w, i) => counter(nums[i], w.value, { prefix: w.prefix ?? "", suffix: w.of ? `/${w.of}` : "", duration: 1400 }));
+}
+
+function tokensChart(host) {
+  const NS = "http://www.w3.org/2000/svg";
+  const wrap = el("div", "donut-wrap");
+  const svg = document.createElementNS(NS, "svg");
+  svg.setAttribute("viewBox", "0 0 120 120");
+  svg.setAttribute("class", "donut");
+  svg.setAttribute("role", "img");
+  svg.setAttribute("aria-label", TOKENS.map((t) => `${t.name} ${t.share}%`).join(", "));
+  const R = 48, C = 2 * Math.PI * R;
+  let offset = 0;
+  TOKENS.forEach((t, i) => {
+    const arc = document.createElementNS(NS, "circle");
+    arc.setAttribute("cx", "60"); arc.setAttribute("cy", "60"); arc.setAttribute("r", String(R));
+    arc.setAttribute("class", `arc is-${t.tone}`);
+    const len = (t.share / 100) * C;
+    arc.style.setProperty("--len", len.toFixed(2));
+    arc.style.setProperty("--gap", (C - len).toFixed(2));
+    arc.style.setProperty("--off", (-offset).toFixed(2));
+    arc.style.setProperty("--i", i);
+    offset += len;
+    svg.append(arc);
+  });
+  const centre = el("div", "donut-centre");
+  const pct = el("strong", "", "0%");
+  centre.append(pct, el("span", "", "from cache"));
+  const legend = el("ul", "donut-legend");
+  TOKENS.forEach((t) => {
+    const li = el("li", `is-${t.tone}`);
+    li.append(el("b", "", `${t.share}%`), el("span", "", ` ${t.name} · ${t.tokens}`));
+    legend.append(li);
+  });
+  wrap.append(svg, centre);
+  const scripted = el("div", "scripted");
+  scripted.append(el("div", "scripted-title", "checked by scripts, not models: 0 tokens"));
+  const chips = el("div", "embed-chips");
+  SCRIPTED.forEach((name, i) => { const c = el("span", "chip is-script", name); c.style.setProperty("--i", i); chips.append(c); });
+  scripted.append(chips);
+  const row = el("div", "donut-row");
+  row.append(wrap, legend);
+  host.append(row, scripted);
+  return () => counter(pct, 56.2, { decimals: 1, suffix: "%", duration: 1500 });
+}
+
+function proofChart(host) {
+  const dots = el("div", "proof-dots");
+  dots.setAttribute("role", "img");
+  dots.setAttribute("aria-label", "29 of 29 requirements proven");
+  for (let i = 0; i < 29; i += 1) { const d = el("span", "dot"); d.style.setProperty("--i", i); dots.append(d); }
+  const gates = el("div", "gate-strip");
+  GATES.forEach((g, i) => {
+    const step = el("div", "gate" + (i === GATES.length - 1 ? " is-you" : ""));
+    step.style.setProperty("--i", i);
+    step.append(el("span", "", g));
+    gates.append(step);
+  });
+  const stats = el("div", "run-stats is-three");
+  const nums = ACCURACY_STATS.map((a) => {
+    const cell = el("div", "run-stat");
+    const big = el("strong", "", "0");
+    cell.append(big, el("span", "", a.label));
+    stats.append(cell);
+    return big;
+  });
+  host.append(dots, el("div", "scripted-title", "every story passes every gate, in order"), gates, stats);
+  return () => ACCURACY_STATS.forEach((a, i) => setTimeout(() => counter(nums[i], a.value, { decimals: a.decimals ?? 0, suffix: a.suffix ?? "" }),
+    reduce ? 0 : 1200));
+}
+
+function valuePanel(host) {
+  const stats = el("div", "run-stats is-four");
+  const nums = VALUE_STATS.map((s) => {
+    const cell = el("div", "run-stat");
+    const big = el("strong", "", "0");
+    cell.append(big, el("span", "", s.label));
+    stats.append(cell);
+    return big;
+  });
+  const total = RUN_STAGES.reduce((sum, s) => sum + s.minutes, 0);
+  const strip = el("div", "run-strip");
+  RUN_STAGES.forEach((s, i) => {
+    const seg = el("div", "run-seg");
+    seg.style.setProperty("--w", s.minutes / total);
+    seg.style.setProperty("--i", i);
+    seg.title = `${s.name}: ${s.minutes} min`;
+    seg.append(el("span", "seg-long", s.minutes / total < 0.12 ? `${s.minutes}m` : `${s.name} ${s.minutes}m`), el("span", "seg-short", `${s.minutes}m`));
+    strip.append(seg);
+  });
+  // small beats big: the shipped search model against one 4.5 times its size
+  const vs = el("div", "versus");
+  vs.append(el("div", "scripted-title", "small beats big: the shipped search model vs one 4.5× its size"));
+  for (const [label, small, big, smallText, bigText, better] of SMALL_VS_BIG) {
+    const row = el("div", "vs-row");
+    const pair = el("div", "vs-pair");
+    for (const [value, text, cls] of [[small, smallText, "is-small"], [big, bigText, "is-big"]]) {
+      const bar = el("div", `vs-bar ${cls}${value < 0.45 ? " is-outside" : ""}`);
+      bar.style.setProperty("--to", value);
+      bar.append(el("span", "", text));
+      pair.append(bar);
+    }
+    row.append(el("div", "vs-label", `${label}${better ? ` · ${better}` : ""}`), pair);
+    vs.append(row);
+  }
+  host.append(stats, el("div", "run-strip-label", "agent minutes per stage: use cases 2, design 8, plan 16, build 7"), strip, vs);
+  return () => VALUE_STATS.forEach((s, i) => counter(nums[i], s.value, { suffix: s.of ? `/${s.of}` : s.suffix ?? "" }));
+}
+
+function localDiagram(host) {
+  const box = el("div", "local-box");
+  box.append(el("div", "local-title", "your machine"));
+  const inside = el("div", "local-inside");
+  LOCAL.forEach((item, i) => {
+    const node = el("div", "local-node");
+    node.style.setProperty("--i", i);
+    node.append(el("b", "", item.name), el("span", "", item.note));
+    inside.append(node);
+  });
+  box.append(inside);
+  const out = el("div", "local-out");
+  OUTSIDE.forEach((item, i) => {
+    const node = el("div", "out-node" + (item.off ? " is-off" : ""));
+    node.style.setProperty("--i", i);
+    node.append(el("i", "", ""), el("b", "", item.name), el("span", "", item.note));
+    out.append(node);
+  });
+  const row = el("div", "local-row");
+  row.append(box, out);
+  const licences = el("div", "licences");
+  LICENCES.forEach(([name, licence], i) => {
+    const chip = el("span", "licence");
+    chip.style.setProperty("--i", i);
+    chip.append(el("b", "", name), el("span", "", licence));
+    licences.append(chip);
+  });
+  host.append(row, el("div", "scripted-title", "every part is open source"), licences);
+  return () => {};
+}
+
+const CHARTS = { local: localDiagram, wins: winsBand, tokens: tokensChart, proof: proofChart, value: valuePanel, models: modelsChart, text: textVsModelChart, summaries: summariesChart, index: indexChart, run: runPanel, decides: decidesMatrix };
 
 /* ------------------------------------------------------------------ wiring: draw each chart, animate it once when seen */
 

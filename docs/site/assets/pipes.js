@@ -26,6 +26,7 @@ const MOODS = [
   { spawn: 10, speed: 3.6, branch: 0.45, hold: 0.1, loop: 0.08, lit: 0.6, pass: 0 },
   { spawn: 6, speed: 2.6, branch: 0.15, hold: 0.7, loop: 0.05, lit: 0.45, pass: 1 },
   { spawn: 5, speed: 3.2, branch: 0.6, hold: 0.15, loop: 0, lit: 0.35, pass: 0.5, merge: true },
+  { spawn: 6, speed: 2.4, branch: 0.2, hold: 0.95, loop: 0.02, lit: 0.5, pass: 0 }, // you are the pilot: work waits at every gate for you
 ];
 
 let width = 0, height = 0, dpr = 1;

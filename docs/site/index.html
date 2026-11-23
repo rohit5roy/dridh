@@ -18,6 +18,7 @@
   <div class="wrap row">
     <a class="logo" href="#top">dridh<span>_</span></a>
     <nav>
+      <a class="hide-sm" href="#wins">wins</a>
       <a class="hide-sm" href="#board">how it works</a>
       <a class="hide-sm" href="#bench">benchmarks</a>
       <a class="hide-sm" href="#start">get started</a>
@@ -55,7 +56,42 @@
     </div>
   </section>
 
-  <section class="wrap boardwrap" id="board" data-stage="2">
+  <section class="wrap wins" id="wins" data-stage="2">
+    <div class="board-title">
+      <h2>Cheap models. Real features. You in charge.</h2>
+      <span>measured, with the numbers on GitHub</span>
+    </div>
+    <div class="win-band" data-chart="wins"><p class="nojs">0 wasted retries · 29/29 requirements proven · $0 for a working feature · 0 actions an agent can approve</p></div>
+    <div class="win-grid">
+      <figure class="panel win" id="win-01" data-stage="2">
+        <figcaption><small>01</small><b>Minimising token waste</b><span>no wasted retries, and most tokens come from the cheap cache; every check is a script, not a model</span></figcaption>
+        <div class="tokens" data-chart="tokens"><p class="nojs">56% of the 2.38M tokens were cache reads; output was 5%.</p></div>
+        <p class="caveat">one feature, opencode/big-pickle · <a href="https://github.com/rohit5roy/dridh/blob/main/docs/benchmarks/REAL-MODEL-RUN.md">source →</a></p>
+      </figure>
+      <figure class="panel win" id="win-02" data-stage="4">
+        <figcaption><small>02</small><b>Enforced accuracy</b><span>each approved requirement is proven by a passing test named for it, or recorded as a deviation you decide</span></figcaption>
+        <div class="proof" data-chart="proof"><p class="nojs">29 of 29 requirements proven by named tests.</p></div>
+        <p class="caveat">29 flows of one feature · search: CodeSearchNet, 200 queries · <a href="https://github.com/rohit5roy/dridh/blob/main/docs/benchmarks/SEARCH-MODELS.md">source →</a></p>
+      </figure>
+      <figure class="panel win" id="win-03" data-stage="3">
+        <figcaption><small>03</small><b>Cheap models deliver business value</b><span>a free model took a feature from questions to tested code</span></figcaption>
+        <div class="run" data-chart="value"><p class="nojs">4/4 stories first try, 82 passing tests, 26/26 agent runs, 35 minutes, $0.</p></div>
+        <p class="caveat">"Library holds", opencode/big-pickle, $0 · <a href="https://github.com/rohit5roy/dridh/blob/main/docs/benchmarks/REAL-MODEL-RUN.md">source →</a></p>
+      </figure>
+      <figure class="panel win" id="win-04" data-stage="6">
+        <figcaption><small>04</small><b>You are the pilot</b><span>the agents work; you decide; every gate needs your typed confirmation in a real terminal</span></figcaption>
+        <div class="decide" data-chart="decides"><p class="nojs">Only you approve stages, tick checklists, start runs, judge lots, accept deviations and complete a feature.</p></div>
+        <p class="caveat">scripts, pipes and agents are refused at every gate</p>
+      </figure>
+      <figure class="panel win wide" id="win-05" data-stage="0">
+        <figcaption><small>05</small><b>Open source, on your machine</b><span>Dridh has no servers of its own: the code index, its search model, the state, the documents and every test run stay on your computer</span></figcaption>
+        <div class="local" data-chart="local"><p class="nojs">Everything runs locally and is open source; only model prompts go to the provider you set in OpenCode, and GitHub delivery is off by default.</p></div>
+        <p class="caveat">the search model ships with each release and runs offline · <a href="https://github.com/rohit5roy/dridh">source on GitHub →</a></p>
+      </figure>
+    </div>
+  </section>
+
+  <section class="wrap boardwrap" id="board" data-stage="1">
     <div class="board-title">
       <h2>How it works.</h2>
       <span>Stage by stage: where it loops back, and where it waits for you.</span>
@@ -85,10 +121,6 @@
           <article class="icard"><svg class="ico" viewBox="0 0 32 32" aria-hidden="true"><path d="M26 16a10 10 0 1 1-3-7"/><path d="M26 4v6h-6"/></svg><h3>Recovery built in</h3><p>17 failure scenarios, each covered by a test.</p></article>
           <article class="icard"><svg class="ico" viewBox="0 0 32 32" aria-hidden="true"><rect x="3" y="5" width="26" height="22"/><path d="M19 5v22"/><path d="M22 10h4M22 14h4M22 18h4"/></svg><h3>Inside OpenCode</h3><p>Panel, coverage matrix, metrics, lots with diffs.</p></article>
         </div>
-        <figure class="panel decide-panel">
-          <figcaption><b>Who decides</b><span>the agent works; you decide; scripts check</span></figcaption>
-          <div class="decide" data-chart="decides"><p class="nojs">Agents write documents and code. Only you approve stages, tick checklists, start runs, judge lots, accept deviations and complete a feature.</p></div>
-        </figure>
       </div>
     </div>
   </section>
@@ -119,11 +151,6 @@
         <figcaption><b>Indexing a 36,000-entity Java project</b><span>apache/dubbo, 4 CPUs · once in full, then seconds</span></figcaption>
         <div class="bars" data-chart="index"><p class="nojs">First index 21.8 min (1.5 GB peak); structure only 15 s; after editing a file 13 s.</p></div>
         <a class="src" href="https://github.com/rohit5roy/dridh/blob/main/docs/benchmarks/CODE-REACHER-AT-SCALE.md">at scale →</a>
-      </figure>
-      <figure class="panel chart wide">
-        <figcaption><b>One real feature on a free model</b><span>"Library holds" through every stage with opencode/big-pickle</span></figcaption>
-        <div class="run" data-chart="run"><p class="nojs">26 agent runs, 0 repairs, 4 of 4 stories and 29 of 29 flows proven, 2.4M tokens, $0.</p></div>
-        <a class="src" href="https://github.com/rohit5roy/dridh/blob/main/docs/benchmarks/REAL-MODEL-RUN.md">the run, and the bugs it found →</a>
       </figure>
     </div>
   </section>
