@@ -78,8 +78,12 @@ def test_rows_lead_to_the_story_lot_the_ledger_entry_and_the_planned_code(env, m
     _run(info, feature, rest)
     _set_status(info, ST_1_1="COMPLETED", ST_1_2="IN_REVIEW")
     rows = {row["flow"]: row for g in coverage(info)["use_cases"] for row in g["rows"]}
-    lot = rows["SF-01.1"]["detail"]["lot"]
-    assert lot is not None and lot["run"] and isinstance(lot["lot"], int) and lot["status"]
+    # The first story to finish forms the pathfinder lot; the two stories run in parallel, so either may be in it.
+    in_lots = {row["story"]: row["detail"]["lot"] for row in rows.values() if row["detail"]["lot"]}
+    assert in_lots, "a delivered story's rows show its lot"
+    for story, lot in in_lots.items():
+        assert lot["run"] and isinstance(lot["lot"], int) and lot["status"]
+        assert all(r["detail"]["lot"] == lot for r in rows.values() if r["story"] == story)  # every flow of the story
     entry = rows["BE-01.1"]["detail"]["ledger_entry"]
     assert entry is not None and entry["actual_behavior"] and entry["justification"] and entry["decision"] is None
     assert rows["SF-01.1"]["detail"]["ledger_entry"] is None
