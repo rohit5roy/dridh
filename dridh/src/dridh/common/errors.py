@@ -106,7 +106,8 @@ RECOVERY_GUIDANCE.update(
             "Correct the plan fields listed in details, or ask the Planner for a revised plan, then retry."
         ),
         ErrorCode.APPROVAL_REQUIRED: (
-            "A human must approve the plan in the terminal with dridh workflow approve before execution continues."
+            "A human must approve in a terminal by typing the confirmation shown: `dridh ideator approve`, `dridh designer approve`, "
+            "`dridh planner approve`, `dridh execute start` or `dridh execute review` (in OpenCode, the Dridh panel opens it for you)."
         ),
         ErrorCode.DEPENDENCY_NOT_READY: (
             "Wait for the listed dependencies to complete, or inspect why they have not, then retry."

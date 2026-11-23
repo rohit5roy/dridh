@@ -208,9 +208,11 @@ def _code_index(info: WorkspaceInfo) -> dict[str, Any]:
     if not info.state_db.exists():
         return {"vectors_stale": False, "code_changed": False, "fingerprint": None}
     with StateStore(info.state_db, info.workspace_id) as store:
-        stale = bool(vector_freshness(store.read(), info.workspace_id)["stale"])
+        vectors = vector_freshness(store.read(), info.workspace_id)
     freshness = index_freshness(info)
-    return {"vectors_stale": stale, "code_changed": freshness["changed"], "fingerprint": freshness.get("fingerprint")}
+    return {"vectors_stale": bool(vectors["stale"]), "code_changed": freshness["changed"], "fingerprint": freshness.get("fingerprint"),
+            # the vectors come from the hashing fallback: semantic search ranks by shared words only, and the panel says so
+            "search_degraded": bool(vectors["degraded"])}
 
 
 def _metrics_summary(info: WorkspaceInfo) -> str:

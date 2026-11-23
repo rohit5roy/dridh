@@ -220,8 +220,19 @@ class StoryRunner:
         """Write the flows reported CHANGED or NOT_DONE to the ledger as drafts awaiting a human decision. A failure is
         recorded, not raised: the delivery check then still blocks, because the deviation has no ledger entry."""
         from dridh.ledger.drafts import add_drafts, drafts_from_report
+        from dridh.ledger.flows import still_open_elsewhere
 
         drafts = drafts_from_report(story_id, flow_report)
+        if any(d["status"] == "NOT_DONE" for d in drafts):
+            # A flow this story did not build is not a deviation while another story that owns it can still build it
+            # (or already did): a store story need not build its command-line flows. The last owner's report decides.
+            with self._store() as store:
+                connection = store.read()
+                deferred = [d["flow"] for d in drafts
+                            if d["status"] == "NOT_DONE" and still_open_elsewhere(connection, self.workspace.workspace_id, story_id, d["flow"])]
+            if deferred:
+                evidence.setdefault("deferred_to_other_stories", deferred)
+                drafts = [d for d in drafts if d["flow"] not in deferred]
         if not drafts:
             return []
         try:

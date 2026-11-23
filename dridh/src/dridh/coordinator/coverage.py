@@ -12,7 +12,7 @@ from collections.abc import Callable
 from typing import Any
 
 from dridh.ledger.drafts import ledger_file
-from dridh.ledger.flows import approved_flows, delivered_flows, story_flows
+from dridh.ledger.flows import approved_flows, delivered_flows, flow_owners, resolve_flow
 from dridh.observability.tables import DASH, layout, table
 from dridh.state.store import StateStore
 from dridh.workspace.layout import WorkspaceInfo
@@ -106,7 +106,7 @@ def coverage(workspace: WorkspaceInfo, *, awaiting: list[str] | None = None) -> 
         w = workspace.workspace_id
         flows = approved_flows(connection, w)
         titles = {r[0]: r[1] for r in connection.execute("SELECT use_case_id, title FROM use_case WHERE workspace_id=?", (w,))}
-        owners = story_flows(connection, w)
+        owners_of = flow_owners(connection, w)
         delivered = delivered_flows(connection, w)
         stories = {r[0]: r[1] for r in connection.execute("SELECT story_id, status FROM story WHERE workspace_id=?", (w,))}
         entries = [dict(r) for r in connection.execute(
@@ -123,18 +123,16 @@ def coverage(workspace: WorkspaceInfo, *, awaiting: list[str] | None = None) -> 
             from dridh.coordinator.delivery_check import delivery_readiness
 
             awaiting = delivery_readiness(workspace)["awaiting_approval"]
-    owner_of = {flow: story for story, items in owners.items() for flow in items}
-    by_flow: dict[str, list[dict[str, Any]]] = {}
-    for entry in entries:
-        by_flow.setdefault(entry["origin_id"], []).append(entry)
 
     groups: dict[str, dict[str, Any]] = {}
     counts: dict[str, int] = {}
     for flow, item in flows.items():
-        story = owner_of.get(flow)
+        resolved = resolve_flow(flow, owners_of.get(flow, []), stories, delivered, entries)  # the delivery check's rule
+        story, entry = resolved["story"], resolved["entry"]
         report = delivered.get(story or "", {}).get(flow)
-        entry = next((e for e in by_flow.get(flow, []) if e["deviation_status"] in EXPLAINING), None)
         state, proof = _state(flow, story, stories.get(story or ""), report, entry, awaiting, decisions)
+        if resolved["superseded"]:
+            proof += f" ({', '.join(resolved['superseded'])} not needed: proven here)"
         counts[state] = counts.get(state, 0) + 1
         label, tone = STATES[state]
         group = groups.setdefault(item["use_case"], {"use_case": item["use_case"], "title": titles.get(item["use_case"], ""), "rows": []})
@@ -158,6 +156,7 @@ def coverage(workspace: WorkspaceInfo, *, awaiting: list[str] | None = None) -> 
                                                                       "decided_at": decision.decided_at},
                        } if entry else None,
                        "awaiting": bool(entry and entry["ledger_id"] in awaiting),
+                       "superseded": resolved["superseded"], "owners": owners_of.get(flow, []),
                        "lot": lots.get(story or ""),
                        "code": mapped or planned, "code_source": "mapped" if mapped else "owned" if planned else None},
         })

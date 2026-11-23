@@ -1,14 +1,40 @@
-# Code Reacher on large real repositories, 2026-11-09
+# Code Reacher on large real repositories
 
-Code Reacher was run with the real local embedding model (FastEmbed 0.9.1, `BAAI/bge-small-en-v1.5`, 384 dimensions,
-sqlite-vec loaded) on two public repositories it had never seen, on a 4-CPU Linux machine.
+## Current model, 2026-11-23
 
-> **Since 0.9.0rc4** Code Reacher uses `thenlper/gte-small` (384 dimensions, MIT) and embeds each class, function and
-> method with its doc comment and the start of its code, not only its name and signature. On a CodeSearchNet benchmark
-> (Python and Java, 200 queries each) the right method came first for 87.5% and 83.5% of queries. The richer text makes
-> a full index about 2.6 times slower (a 1,414-entity project: 52 s instead of 20 s), so the timings below are lower
-> bounds for a full index today; updating after an edit still embeds only what changed. An index built by an earlier
-> release is rebuilt automatically. The numbers below were not re-measured.
+Code Reacher as shipped since 0.9.0rc4: FastEmbed 0.9.1 with `thenlper/gte-small` (384 dimensions), each class, function
+and method embedded with its doc comment and the start of its code. Measured on a 4-CPU, 16 GB Linux machine with nothing
+else running (load average 0.1 before each run; about 4 during a run, which is the run's own model threads).
+
+| | Apache Dubbo (`apache/dubbo` at `d809bb1`) | Shopizer (`shopizer-ecommerce/shopizer` at `6a4a0a6`) |
+|---|---|---|
+| Language | Java | Java (Spring) |
+| Source files indexed | 4,057 (0 skipped, 0 syntax errors) | 1,210 |
+| Lines | 484k | 115k |
+| Entities embedded | 35,975 (28,978 methods, 3,943 classes, 2,207 constructors, 756 interfaces, 91 enums) | 8,934 |
+| Full index from scratch | **21.8 min** (1,308 s) and 22.8 min (1,371 s) in two runs; peak memory 1.5 GB | 4.7 min (283 s); 1.1 GB |
+| Embedding throughput | 27.5 and 26.2 entities/s | 31.6 entities/s |
+| Structural index only (`--no-embed`) | 15 s, 255 MB | 3.5 s, 97 MB |
+| Re-index after editing one file | 13 s (1 file parsed, 52 vectors) | 3 s |
+
+- **A 34,000-entity project takes about 21 minutes to index in full** (20.6 to 21.7 at the measured rates) and about
+  1.5 GB of memory. This is done once: afterwards only changed files are parsed and embedded, in seconds.
+- **The richer text costs 2.7 times the time.** On the same machine, Shopizer took 283 s against 106 s with the earlier
+  model and text (below), in line with the 2.6 times measured on a small project when the change was made. It bought a
+  large gain in search quality: see [Search models](SEARCH-MODELS.md).
+- Search on Dubbo found `RandomLoadBalance` first for "load balance requests between service providers randomly", and a
+  method added in the incremental test first for its description, 13 s after the edit. "Retry a failed rpc call on
+  another provider" ranked the retry tasks above `FailoverClusterInvoker`, and test classes appear among the results.
+
+Without the FastEmbed package, or when the model cannot be downloaded, Dridh falls back to a hashing embedder that ranks
+by shared words. Since 0.9.0rc5 `dridh index` warns about this on the terminal, its JSON says why and how to fix it, and
+the OpenCode panel shows "code search degraded". The download no longer uses Hugging Face's Xet transfer, which stalled
+for four minutes behind a proxy before failing.
+
+## Earlier model, 2026-11-09
+
+Code Reacher with `BAAI/bge-small-en-v1.5` and only the name, signature and path embedded (before 0.9.0rc4), on two
+public repositories it had never seen, on a 4-CPU Linux machine.
 
 | | Django (`django/django`, shallow clone) | Shopizer (`shopizer-ecommerce/shopizer`) |
 |---|---|---|
@@ -69,4 +95,5 @@ Regression tests: `test_minified_and_generated_files_are_skipped`, `test_two_def
   (the interface), so the implementation shows no callers. 14% of Java calls (3,767 of 26,410) resolve to one indexed
   definition; most of the rest go to the JDK, Spring or getters on interface-typed fields. Code Reacher reports these as
   unresolved instead of guessing (by design).
-- `code_summary` (model-written summaries) is still not built.
+- Code without doc comments is found by its names and code. `dridh code summarize` adds one-sentence summaries for it;
+  see [Code summaries](CODE-SUMMARIES.md) for what they change.

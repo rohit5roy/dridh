@@ -91,6 +91,16 @@ def _cell(value: object) -> str:
     return re.sub(r"\s*\n\s*", " ", text) or "—"
 
 
+def _as_read_back(value: object) -> str:
+    """``value`` as it reads back after being written into a Markdown table cell (``_cell``) and parsed again: an escaped
+    ``|`` is a pipe again, and bold markers and code-span backticks are gone (``markdown.plain``). Comparing a model's
+    proposal with what SQLite imported from the rendered documents must compare both sides in this form, or a harmless
+    `code span` in a test scope makes an approved plan look edited (and refuse to execute)."""
+    from dridh.document_contracts.markdown import plain
+
+    return plain(_cell(value).replace(r"\|", "|"))
+
+
 def _prose(value: object) -> str:
     """Normalise a model-supplied prose field to one string, or "" when unusable.
 
@@ -1548,8 +1558,11 @@ class PlannerService:
             self._save(payload)
         return self.status(session_id)
 
-    def sync(self, session_id: str) -> dict[str, Any]:
-        """Refresh Markdown status projections from the authoritative SQLite planning graph."""
+    def sync(self, session_id: str, *, check_only: bool = False) -> dict[str, Any]:
+        """Refresh Markdown status projections from the authoritative SQLite planning graph.
+
+        ``check_only`` runs every consistency check and writes nothing: execution calls it before it creates a run, so
+        a plan that cannot be executed is refused before any run exists or any story is marked in progress."""
         payload = self._load(session_id)
         if payload["status"] != "GENERATED" or not isinstance(payload.get("generated"), dict):
             raise DridhError(ErrorCode.INVALID_TRANSITION, "Only a fully generated Planner session can synchronize status projections.")
@@ -1593,7 +1606,7 @@ class PlannerService:
                 if (view.dependencies != expected_dependencies[story_id]
                         or view.unlocks != tuple(sorted(expected_unlocks[story_id]))
                         or view.parallel_with != tuple(expected_parallel[story_id])
-                        or view.title != item["title"]
+                        or _as_read_back(view.title) != _as_read_back(item["title"])
                         or view.component_id != item["component_id"]
                         or view.phase != depths[key]
                         or view.use_cases != tuple(sorted(item["use_case_ids"]))):
@@ -1613,11 +1626,13 @@ class PlannerService:
             expected_test_signature = []
             for phase in payload["testing"]["phases"]:
                 expected_test_signature.append((
-                    test_ids[phase["key"]], phase["test_scope"], tuple(sorted(phase["use_case_ids"])),
+                    test_ids[phase["key"]], _as_read_back(phase["test_scope"]), tuple(sorted(phase["use_case_ids"])),
                     tuple(sorted(phase["flow_ids"])), tuple(sorted(phase["component_ids"])),
-                    phase["dependency_mode"], phase["environment"], phase["execution_command"], phase["evidence"],
+                    _as_read_back(phase["dependency_mode"]), _as_read_back(phase["environment"]),
+                    _as_read_back(phase["execution_command"]), _as_read_back(phase["evidence"]),
                 ))
-            if sorted(row[:9] for row in actual_test_signature) != sorted(expected_test_signature):
+            actual_rows = [(row[0], _as_read_back(row[1]), *row[2:5], *(_as_read_back(value) for value in row[5:9])) for row in actual_test_signature]
+            if sorted(actual_rows) != sorted(expected_test_signature):
                 raise DridhError(ErrorCode.CONFIGURATION_CONFLICT, "The SQLite test-plan definitions changed independently of the approved Planner proposal.")
             test_statuses = {key: test_status_by_id[test_id] for key, test_id in test_ids.items()}
         unlock_keys: dict[str, list[str]] = {key: [] for key in order_keys}
@@ -1684,6 +1699,8 @@ class PlannerService:
                     model = validated_master_model(item["content"], item["path"])
                     if design.stored_master(document_id) != model:
                         raise DridhError(ErrorCode.CONFIGURATION_CONFLICT, "Component design decisions changed in SQLite; status-only synchronization refused.", details=(item["path"],))
+        if check_only:
+            return {"session_id": session_id, "consistent": True}
         revisions = self._persist(payload, docs_to_write, refresh_markers_only=True)
         generated["files"] = [{"path": item["path"], "sha256": content_hash(item["content"]), "kind": item["kind"]} for item in docs_to_write]
         generated["revisions"] = revisions

@@ -245,6 +245,12 @@ def _failure_evidence(stdout: str, stderr: str) -> str:
     return "\n".join([_error_text(events), *plain, stderr])
 
 
+_KNOWN_FAILURE_MESSAGES = {
+    AgentErrorCode.QUOTA_EXHAUSTED: "The model's quota or free usage limit is exhausted.",
+    AgentErrorCode.PROVIDER_FAILURE: "The model provider failed to answer.",
+}
+
+
 def _classify_known_failure(stdout: str, stderr: str) -> AgentErrorCode | None:
     haystack = _failure_evidence(stdout, stderr).lower()
     if any(marker in haystack for marker in _QUOTA_MARKERS):
@@ -431,7 +437,7 @@ class OpenCodeRunner:
             if known is not None:
                 raise AgentRunError(
                     known,
-                    "Agent process failed with a provider/quota condition.",
+                    _KNOWN_FAILURE_MESSAGES[known],
                     retryable=known is AgentErrorCode.PROVIDER_FAILURE,
                     details=tuple(exc.details),
                 ) from None
@@ -467,7 +473,7 @@ class OpenCodeRunner:
             if known is not None:
                 raise AgentRunError(
                     known,
-                    "Agent process reported a provider/quota failure.",
+                    _KNOWN_FAILURE_MESSAGES[known],
                     retryable=known is AgentErrorCode.PROVIDER_FAILURE,
                     details=details,
                 )
@@ -523,7 +529,7 @@ class OpenCodeRunner:
         if known is not None:
             raise AgentRunError(
                 known,
-                "Agent output reported a provider/quota failure.",
+                _KNOWN_FAILURE_MESSAGES[known],
                 retryable=known is AgentErrorCode.PROVIDER_FAILURE,
                 details=(f"exit_code: {process.exit_code}",),
                 session_id=session,

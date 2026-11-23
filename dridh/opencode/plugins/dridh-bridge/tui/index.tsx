@@ -621,6 +621,12 @@ export default Plugin.define({
                   <text>{state().metrics}<span style={{ fg: c.muted }}>{"   m all metrics"}</span></text>
                 </box>
               </Show>
+              <Show when={state()?.code_index?.search_degraded}>
+                <box flexDirection="column">
+                  <text fg={c.muted}>CODE SEARCH</text>
+                  <text fg={c.warn}>degraded: words only, no search model<span style={{ fg: c.muted }}>{"   dridh doctor says how to install it"}</span></text>
+                </box>
+              </Show>
               <Show when={state()?.models}>
                 <box flexDirection="column">
                   <text fg={c.muted}>MODELS</text>

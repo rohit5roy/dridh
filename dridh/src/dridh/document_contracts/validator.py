@@ -760,7 +760,7 @@ def _validate_card(report: _Report, story_id: str, title: str, table: Table) -> 
     if use_case == "N/A" and flows != "N/A":
         report.error("STORY_ORIGIN_MISMATCH", "Infrastructure story with no Use Case must have Flow IDs N/A", line=line, entity=story_id, actual=flows)
     card_title, line = value("Title")
-    if card_title != title:
+    if plain(card_title) != plain(title):  # code spans and bold read back the same in a heading and in a table cell
         report.error("STORY_TITLE_MISMATCH", "Story card Title must match the story heading", line=line, entity=story_id, expected=title, actual=card_title)
     status, line = value("Status")
     _check_enum(report, line, "Status", status, STORY_STATUSES, story_id)

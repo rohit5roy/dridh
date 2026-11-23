@@ -178,7 +178,7 @@ def parse_phase(content: str) -> PhaseModel:
         cards.append(
             CardRow(
                 story_id=story_id,
-                title=str(card["title"]),
+                title=plain(str(card["title"])),  # as the central plan's table cell reads it: no code spans or bold
                 use_cases=tuple(card["use_cases"]),  # type: ignore[arg-type]
                 flows=tuple(card["flows"]),  # type: ignore[arg-type]
                 dependencies=tuple(card["deps"]),  # type: ignore[arg-type]
@@ -471,7 +471,7 @@ class PlanningRepository:
             if view is None:
                 continue
             problems = []
-            if view.title != card.title:
+            if plain(view.title) != plain(card.title):  # a heading keeps `code spans`; a table cell reads back without them
                 problems.append("title")
             if tuple(sorted(view.use_cases)) != tuple(sorted(card.use_cases)):
                 problems.append("use cases")

@@ -49,3 +49,68 @@ def delivered_flows(connection: sqlite3.Connection, workspace_id: str) -> dict[s
         result[story_id] = {flow: {**item, **{k: proof.get(flow, {}).get(k) for k in ("proven", "method", "tests")}}
                             for flow, item in report.items()}
     return result
+
+
+EXPLAINING = ("DEVIATED", "NOT_DONE", "WONT_DO")
+
+
+def flow_owners(connection: sqlite3.Connection, workspace_id: str) -> dict[str, list[str]]:
+    """``flow_id -> [story_id]``: every story that owns the flow. A plan may give one flow to several stories (a store,
+    a service and a command-line story can all serve one use case)."""
+    owners: dict[str, list[str]] = {}
+    for story, items in sorted(story_flows(connection, workspace_id).items()):
+        for flow in items:
+            owners.setdefault(flow, []).append(story)
+    return owners
+
+
+def proving_stories(flow: str, owners: list[str], statuses: dict[str, str],
+                    delivered: dict[str, dict[str, dict[str, Any]]]) -> list[str]:
+    """The owners whose latest passing attempt reported ``flow`` IMPLEMENTED and proved it by a passing test named for it,
+    in a COMPLETED story."""
+    return [story for story in owners if statuses.get(story) == "COMPLETED"
+            and (delivered.get(story, {}).get(flow) or {}).get("status") == "IMPLEMENTED"
+            and (delivered.get(story, {}).get(flow) or {}).get("proven")]
+
+
+def resolve_flow(flow: str, owners: list[str], statuses: dict[str, str], delivered: dict[str, dict[str, dict[str, Any]]],
+                 entries: list[dict[str, Any]]) -> dict[str, Any]:
+    """How one approved flow stands, by one rule for the delivery check, the coverage matrix and drafting.
+
+    A flow proven by any story that owns it is proven. A NOT_DONE ledger entry for a proven flow is *superseded*: one
+    story honestly said it did not build the flow and another did, so nobody has to approve a deviation that did not
+    happen. A DEVIATED or WONT_DO entry is never superseded: a behaviour change or a decision not to build is a human
+    decision even when a test passes. Returns ``{story, proving, entry, superseded}``: ``story`` is the proving owner, else
+    the first owner still unfinished, else the last owner; ``entry`` the explaining entry still in force."""
+    proving = proving_stories(flow, owners, statuses, delivered)
+    explaining = [e for e in entries if e["origin_id"] == flow and e["deviation_status"] in EXPLAINING]
+    superseded = [e["ledger_id"] for e in explaining if proving and e["deviation_status"] == "NOT_DONE"]
+    in_force = [e for e in explaining if e["ledger_id"] not in superseded]
+    unfinished = [story for story in owners if statuses.get(story) != "COMPLETED"]
+    story = proving[0] if proving else (unfinished[0] if unfinished else (owners[-1] if owners else None))
+    return {"story": story, "proving": proving, "entry": in_force[0] if in_force else None, "superseded": superseded}
+
+
+def superseded_entries(connection: sqlite3.Connection, workspace_id: str) -> set[str]:
+    """Ledger IDs of NOT_DONE entries whose flow another story proved: they need no human decision."""
+    owners = flow_owners(connection, workspace_id)
+    statuses = {r[0]: r[1] for r in connection.execute("SELECT story_id, status FROM story WHERE workspace_id=?", (workspace_id,))}
+    delivered = delivered_flows(connection, workspace_id)
+    entries = [dict(zip(("ledger_id", "origin_id", "deviation_status"), r, strict=True)) for r in connection.execute(
+        "SELECT ledger_id, origin_id, deviation_status FROM ledger_entry WHERE workspace_id=?", (workspace_id,))]
+    found: set[str] = set()
+    for flow in {e["origin_id"] for e in entries}:
+        found.update(resolve_flow(flow, owners.get(flow, []), statuses, delivered, entries)["superseded"])
+    return found
+
+
+def still_open_elsewhere(connection: sqlite3.Connection, workspace_id: str, story_id: str, flow: str) -> bool:
+    """Whether another story that owns ``flow`` is not finished yet or already proves it: then this story's NOT_DONE for
+    the flow is not a deviation (yet), and no ledger draft is written for it."""
+    others = [story for story in flow_owners(connection, workspace_id).get(flow, []) if story != story_id]
+    if not others:
+        return False
+    statuses = {r[0]: r[1] for r in connection.execute("SELECT story_id, status FROM story WHERE workspace_id=?", (workspace_id,))}
+    if any(statuses.get(story) != "COMPLETED" for story in others):
+        return True
+    return bool(proving_stories(flow, others, statuses, delivered_flows(connection, workspace_id)))
