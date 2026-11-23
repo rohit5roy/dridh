@@ -60,7 +60,7 @@ const WINS = [ // the four claims, one number each
   { n: "02", title: "Enforced accuracy", value: 29, of: 29, label: "requirements proven by a named, passing test" },
   { n: "03", title: "Cheap models deliver", value: 0, prefix: "$", label: "model cost of a working feature" },
   { n: "04", title: "You are the pilot", value: 0, label: "actions an agent can approve" },
-  { n: "05", title: "Open source, on your machine", value: 0, label: "Dridh servers: search, state and checks run locally" },
+  { n: "05", title: "Open and Local", value: 0, label: "Dridh servers: search, state and checks run locally" },
 ];
 const LOCAL = [ // what runs on your machine
   { name: "Dridh runtime", note: "stages, gates, checks" },
