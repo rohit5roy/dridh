@@ -111,3 +111,23 @@ def test_wait_timeout_preserves_original_error_and_saves_failure_capture(tmp_pat
     assert (tmp_path / "required-FAILED.txt").is_file()
     assert (tmp_path / "required-FAILED.ansi").is_file()
     assert (tmp_path / "required-FAILED.png").is_file()
+
+
+def test_the_command_line_check_fails_on_a_missing_screenshot_and_writes_a_summary(tmp_path) -> None:
+    import json
+
+    from tui_smoke_contract import FIRST_RUN_REQUIRED_SCREENSHOTS, main
+
+    (tmp_path / "steps.json").write_text(json.dumps({"required_screenshots": list(FIRST_RUN_REQUIRED_SCREENSHOTS),
+                                                     "steps": [{"step": s} for s in FIRST_RUN_REQUIRED_SCREENSHOTS]}))
+    png = b"\x89PNG\r\n\x1a\n" + b"\x00\x00\x00\x0dIHDR" + (1600).to_bytes(4, "big") + (900).to_bytes(4, "big")
+    for name in FIRST_RUN_REQUIRED_SCREENSHOTS:
+        for suffix in (".txt", ".ansi"):
+            (tmp_path / f"{name}{suffix}").write_text("screen")
+        (tmp_path / f"{name}.png").write_bytes(png)
+    summary = tmp_path / "summary.md"
+    assert main([str(tmp_path), "--first-run-only", "--summary", str(summary)]) == 0
+    (tmp_path / "4-ready.png").unlink()
+    assert main([str(tmp_path), "--first-run-only", "--summary", str(summary)]) == 1
+    text = summary.read_text()
+    assert "**passed**" in text and "**FAILED**" in text and "required .png screenshots missing: 4-ready" in text

@@ -3,7 +3,7 @@
 # Disposable full-system E2E image for Dridh Phase 3.
 #
 # Pinned: Python 3.13.18 (base image), Node.js 24.22.2 with its bundled npm 11.19.1
-# (verified against the official SHASUMS256 list), uv 0.13.7, OpenCode CLI 2.2.6
+# (verified against the official SHASUMS256 list), uv 0.13.7, OpenCode CLI 2.3.2
 # (lock-pinned in .github/scripts/opencode-cli). The image contains no credentials, no
 # host configuration and no Docker socket. Build context: the repository root.
 
@@ -59,7 +59,7 @@ FROM runtime-base AS opencode
 COPY .github/scripts/opencode-cli/package.json .github/scripts/opencode-cli/package-lock.json /opt/opencode-cli/
 RUN cd /opt/opencode-cli \
  && npm ci --no-audit --no-fund \
- && test "$(./node_modules/.bin/opencode --version)" = "opencode v2.2.6"
+ && test "$(./node_modules/.bin/opencode --version)" = "opencode v2.3.2"
 
 # ---- runtime image for the scenario
 FROM runtime-base AS e2e

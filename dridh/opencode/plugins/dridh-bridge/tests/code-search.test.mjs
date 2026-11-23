@@ -108,7 +108,7 @@ test("every Dridh agent profile grants dridh_code and says to search with it fir
   const { readdirSync, readFileSync } = await import("node:fs")
   const agents = resolve(pluginRoot, "..", "..", "agents", "dridh")
   const files = [...readdirSync(agents).filter((f) => f.endsWith(".md")), ...readdirSync(join(agents, "workers")).map((f) => `workers/${f}`)]
-  assert.equal(files.length, 17)
+  assert.equal(files.length, 18)
   for (const file of files) {
     const text = readFileSync(join(agents, file), "utf8")
     assert.match(text, /- action: dridh_code\n {4}resource: "\*"\n {4}effect: allow/, `${file} grants dridh_code`)

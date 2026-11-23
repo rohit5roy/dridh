@@ -107,3 +107,36 @@ def validate_tui_evidence(
         "png_aspect_ratio": "16:9" if not png_errors else png_errors,
         "steps": len(steps),
     }
+
+
+def main(argv: list[str] | None = None) -> int:
+    """``tui_smoke_contract.py <evidence dir> [--first-run-only] [--summary FILE]``: validate a finished smoke run's
+    screenshots against the contract (not just the driver's exit code). Prints the result as JSON; exit 1 on failure."""
+    import argparse
+    import json
+
+    parser = argparse.ArgumentParser(description=main.__doc__)
+    parser.add_argument("evidence", type=Path)
+    parser.add_argument("--first-run-only", action="store_true")
+    parser.add_argument("--summary", type=Path, help="append a Markdown summary here (GITHUB_STEP_SUMMARY)")
+    args = parser.parse_args(argv)
+    required = FIRST_RUN_REQUIRED_SCREENSHOTS if args.first_run_only else FULL_REQUIRED_SCREENSHOTS
+    try:
+        manifest = json.loads((args.evidence / "steps.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        manifest = None
+        print(f"steps.json unreadable: {exc}")
+    result = validate_tui_evidence(args.evidence, manifest, exit_code=0, required_screenshots=required)
+    print(json.dumps(result, indent=2))
+    if args.summary:
+        lines = ["## TUI screenshots", "", f"**{'passed' if result['passed'] else 'FAILED'}**: "
+                 f"{len(required)} required ({', '.join(required)}); "
+                 + ", ".join(f"{count} {suffix}" for suffix, count in result["screens"].items()), ""]
+        lines += [f"- {error}" for error in result["errors"]]
+        with args.summary.open("a", encoding="utf-8") as handle:
+            handle.write("\n".join(lines) + "\n")
+    return 0 if result["passed"] else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

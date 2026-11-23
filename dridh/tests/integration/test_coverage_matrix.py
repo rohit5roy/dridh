@@ -62,3 +62,28 @@ def test_before_any_story_exists_there_is_no_coverage_line(tmp_path):
     report = coverage(info)
     assert report["counts"] == {"no_story": 8} and report["summary"].startswith("0 of 8 flows")  # approved, not yet planned
     assert workspace_state(info).get("coverage", "") == ""  # the overview line appears once stories exist
+
+
+def test_rows_lead_to_the_story_lot_the_ledger_entry_and_the_planned_code(env, monkeypatch):  # noqa: F811
+    from dridh.coordinator import coverage as module
+
+    monkeypatch.setattr(module, "_owned", lambda _workspace: {"ST-1.1": ["src/orders.py", "src/basket/**"]})  # the plan's ownership
+    info, feature, rest = env
+    before = {row["flow"]: row for g in coverage(info)["use_cases"] for row in g["rows"]}
+    planned = before["SF-01.1"]
+    assert planned["detail"]["code_source"] == "owned" and planned["detail"]["code"]  # the files the story owns, before any code
+    assert planned["code"] == "owns src/orders.py, src/basket/**" and planned["detail"]["lot"] is None
+    assert before[rest[0]]["code"] == "–" and before[rest[0]]["detail"]["code_source"] is None  # ST-1.2 owns nothing here
+
+    _run(info, feature, rest)
+    _set_status(info, ST_1_1="COMPLETED", ST_1_2="IN_REVIEW")
+    rows = {row["flow"]: row for g in coverage(info)["use_cases"] for row in g["rows"]}
+    # The first story to finish forms the pathfinder lot; the two stories run in parallel, so either may be in it.
+    in_lots = {row["story"]: row["detail"]["lot"] for row in rows.values() if row["detail"]["lot"]}
+    assert in_lots, "a delivered story's rows show its lot"
+    for story, lot in in_lots.items():
+        assert lot["run"] and isinstance(lot["lot"], int) and lot["status"]
+        assert all(r["detail"]["lot"] == lot for r in rows.values() if r["story"] == story)  # every flow of the story
+    entry = rows["BE-01.1"]["detail"]["ledger_entry"]
+    assert entry is not None and entry["actual_behavior"] and entry["justification"] and entry["decision"] is None
+    assert rows["SF-01.1"]["detail"]["ledger_entry"] is None

@@ -7,7 +7,8 @@ from pathlib import Path
 import yaml
 
 WORKERS = Path(__file__).resolve().parents[2] / "opencode" / "agents" / "dridh" / "workers"
-NO_TOOL_WORKERS = ("ideator-inquirer", "ideator-doc-generator", "ideator-handoff", "designer-inquirer", "designer-doc-generator", "designer-handoff")
+NO_TOOL_WORKERS = ("ideator-inquirer", "ideator-doc-generator", "ideator-handoff", "designer-inquirer", "designer-doc-generator", "designer-handoff",
+                   "code-summarizer")
 
 
 def _permissions(name: str) -> list[dict[str, str]]:

@@ -230,6 +230,16 @@ def _metrics_summary(info: WorkspaceInfo) -> str:
     return summary({"execution": {"stories": stories, "repairs": repairs}, "usage": usage})
 
 
+def _models_headline(info: WorkspaceInfo) -> str:
+    """``Models: <model> (all 17 agents)``: which model the agents use, from configuration; the Metrics tab has each."""
+    try:
+        from dridh.observability.models import agent_models, headline
+
+        return headline(agent_models(info.project_root))
+    except Exception:  # noqa: BLE001 - a summary line must never break the panel
+        return ""
+
+
 def _coverage_summary(info: WorkspaceInfo) -> str:
     """One line for the overview once stories exist: flows proven or explained, and what still needs attention."""
     try:
@@ -254,7 +264,7 @@ def workspace_state(info: WorkspaceInfo, feature_ref: str | None = None) -> dict
         action = ({"kind": "index", "text": "Index the code: /dridh-index."} if current and current["id"] == "index"
                   else {"kind": "create", "text": "Select Dridh/Coordinator (Shift+Tab) and describe a feature."})
         return {"workspace": str(info.project_root), "mode": info.mode, "feature": None, "features": [],
-                "setup": setup, "human_action": action, "code_index": _code_index(info), "metrics": _metrics_summary(info)}
+                "setup": setup, "human_action": action, "code_index": _code_index(info), "metrics": _metrics_summary(info), "models": _models_headline(info)}
     active = [f for f in features if f["stage"] != "COMPLETED"]
     chosen = next((f for f in features if f["slug"] == feature_ref), None) if feature_ref else (active or features)[-1]
     if chosen is None:
@@ -277,6 +287,7 @@ def workspace_state(info: WorkspaceInfo, feature_ref: str | None = None) -> dict
         "human_action": _human_action(feature, stages, runs, info),
         "code_index": _code_index(info),
         "metrics": _metrics_summary(info),
+        "models": _models_headline(info),
         "coverage": _coverage_summary(info),
     }
 

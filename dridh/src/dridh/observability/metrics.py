@@ -75,7 +75,9 @@ def _code_reacher(c: sqlite3.Connection, w: str, now: datetime) -> dict[str, Any
         except ValueError:
             seconds = None
     failed = c.execute("SELECT COUNT(*) FROM code_index_run WHERE workspace_id=? AND status='FAILED'", (w,)).fetchone()[0]
-    return {"indexed": True, "files": run["files_seen"], "indexed_files": run["files_indexed"], "index_seconds": seconds, "failed_runs": failed,
+    summaries = c.execute("SELECT COUNT(DISTINCT s.entity_id) FROM code_summary s JOIN code_entity e ON e.id=s.entity_id "
+                          "JOIN code_file f ON f.id=e.file_id WHERE f.index_run_id=?", (run["id"],)).fetchone()[0]
+    return {"indexed": True, "summaries": summaries, "files": run["files_seen"], "indexed_files": run["files_indexed"], "index_seconds": seconds, "failed_runs": failed,
             "age_seconds": _seconds_since(completed or started, now), "source": str(run["source_sha"])[:12], "note": run["error"]}
 
 
@@ -129,10 +131,18 @@ def collect(info: WorkspaceInfo) -> dict[str, Any]:
                 report[name] = build(connection, info.workspace_id, now)
             except sqlite3.Error as exc:
                 report[name] = {"unavailable": f"{type(exc).__name__}: {str(exc)[:120]}"}
+    entries: list[dict[str, Any]] = []
     try:  # token and cost accounting comes from the usage log, not from SQLite
-        report["usage"] = summarise(read_usage(info.project_root))
+        entries = read_usage(info.project_root)
+        report["usage"] = summarise(entries)
     except (OSError, ValueError) as exc:
         report["usage"] = {"unavailable": f"{type(exc).__name__}: {str(exc)[:120]}"}
+    try:  # which model each agent uses, from configuration (and its last recorded run)
+        from dridh.observability.models import agent_models
+
+        report["models"] = agent_models(info.project_root, entries)
+    except Exception as exc:  # noqa: BLE001 - one section must never hide the others
+        report["models"] = {"unavailable": f"{type(exc).__name__}: {str(exc)[:120]}"}
     _flag_stale_index(report, info)
     return report
 

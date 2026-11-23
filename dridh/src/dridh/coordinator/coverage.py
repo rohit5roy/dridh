@@ -51,6 +51,36 @@ def _code(connection: Any, workspace_id: str) -> dict[str, list[str]]:
     return files
 
 
+def _owned(workspace: WorkspaceInfo) -> dict[str, list[str]]:
+    """``story_id -> [file ownership entry]`` from the plan: the files a story may change, known before any code is
+    mapped, so the Code column says where a flow will live even before its story is delivered."""
+    try:
+        from dridh.code_reacher.mapping import StoryCodeMapper
+
+        stories, _ = StoryCodeMapper(workspace)._stories()
+    except Exception:  # noqa: BLE001 - no readable plan simply means no ownership to show
+        return {}
+    return {story["story_id"]: list(story.get("file_ownership") or []) for story in stories}
+
+
+def _lots(connection: Any, workspace_id: str) -> dict[str, dict[str, Any]]:
+    """``story_id -> {run, lot, kind, status}``: the latest execution lot each story was in (where its diff is reviewed)."""
+    found: dict[str, dict[str, Any]] = {}
+    try:
+        rows = connection.execute(
+            "SELECT s.story_id, l.run_id, l.ordinal, l.kind, l.status FROM execution_lot_story s JOIN execution_lot l ON l.id=s.lot_id "
+            "WHERE s.workspace_id=? ORDER BY l.created_at, l.ordinal", (workspace_id,)).fetchall()
+    except Exception:  # noqa: BLE001 - a workspace that never executed has no lots
+        return found
+    for story, run, ordinal, kind, status in rows:
+        found[story] = {"run": run, "lot": ordinal, "kind": kind, "status": status}
+    return found
+
+
+def _files(paths: list[str]) -> str:
+    return ", ".join(paths[:3]) + (" …" if len(paths) > 3 else "")
+
+
 def _contracts(connection: Any, workspace_id: str) -> dict[str, list[str]]:
     """``flow_id -> [approved API/event reference]`` from the imported design, in document order."""
     from dridh.planner.contract import reference_text
@@ -80,10 +110,13 @@ def coverage(workspace: WorkspaceInfo, *, awaiting: list[str] | None = None) -> 
         delivered = delivered_flows(connection, w)
         stories = {r[0]: r[1] for r in connection.execute("SELECT story_id, status FROM story WHERE workspace_id=?", (w,))}
         entries = [dict(r) for r in connection.execute(
-            "SELECT ledger_id, origin_id, deviation_status, linked_story_id FROM ledger_entry WHERE workspace_id=? ORDER BY position", (w,))]
+            "SELECT ledger_id, title, origin_id, deviation_status, linked_story_id, original_requirement, actual_behavior, "
+            "justification, approved_by FROM ledger_entry WHERE workspace_id=? ORDER BY position", (w,))]
         decisions = dict(load_ledger_decisions(connection))
         code = _code(connection, w)
         contracts = _contracts(connection, w)
+        lots = _lots(connection, w)
+    owned = _owned(workspace)
     if awaiting is None:
         awaiting = []
         if ledger_file(workspace).is_file() and entries:
@@ -105,17 +138,28 @@ def coverage(workspace: WorkspaceInfo, *, awaiting: list[str] | None = None) -> 
         counts[state] = counts.get(state, 0) + 1
         label, tone = STATES[state]
         group = groups.setdefault(item["use_case"], {"use_case": item["use_case"], "title": titles.get(item["use_case"], ""), "rows": []})
+        mapped, planned = code.get(story or "", []), owned.get(story or "", [])
+        decision = decisions.get(entry["ledger_id"]) if entry else None
         group["rows"].append({
             "flow": flow, "type": item["type"].lower().replace("_", " "), "story": story or DASH,
             "story_status": (stories.get(story or "") or "").lower().replace("_", " ") or DASH,
             "state": state, "label": label, "tone": tone, "proof": proof,
-            "code": ", ".join(code.get(story or "", [])[:3]) + (" …" if len(code.get(story or "", [])) > 3 else "") or DASH,
+            # the delivered code once it is mapped; until then the files the story owns, marked as planned
+            "code": _files(mapped) if mapped else (f"owns {_files(planned)}" if planned else DASH),
             "detail": {"text": item["text"], "contract": contracts.get(flow, []), "tests": (report or {}).get("tests") or [],
                        "report": (report or {}).get("status"), "note": (report or {}).get("note") or "",
                        "ledger": entry["ledger_id"] if entry else None,
                        "ledger_status": entry["deviation_status"] if entry else None,
+                       "ledger_entry": {
+                           "title": entry["title"], "original_requirement": entry["original_requirement"],
+                           "actual_behavior": entry["actual_behavior"], "justification": entry["justification"],
+                           "approved_by": entry["approved_by"],
+                           "decision": None if decision is None else {"decision": decision.decision, "reviewer": decision.reviewer,
+                                                                      "decided_at": decision.decided_at},
+                       } if entry else None,
                        "awaiting": bool(entry and entry["ledger_id"] in awaiting),
-                       "code": code.get(story or "", [])},
+                       "lot": lots.get(story or ""),
+                       "code": mapped or planned, "code_source": "mapped" if mapped else "owned" if planned else None},
         })
     use_cases = []
     for group in groups.values():

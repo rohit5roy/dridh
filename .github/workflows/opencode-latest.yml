@@ -4,7 +4,8 @@
 # workflow installs the newest @opencode/cli (and, for the plugin build, @opencode/plugin) from npm and runs, against it:
 #   - the plugin tests (all of tests/*.test.mjs) built with the newest plugin SDK,
 #   - the whole Category A suite (as ci.yml, including the real Docker container tests),
-#   - a first-run TUI smoke journey and screenshots on the newest CLI (non-gating).
+#   - a first-run TUI smoke journey on the newest CLI, whose screenshots are checked against the contract in
+#     dridh/tests/e2e/tui_smoke_contract.py (every required step, in .txt, .ansi and 16:9 .png) (non-gating).
 #
 # It is never a merge gate. A failure means the newest OpenCode breaks Dridh: GitHub emails the repository owner about a
 # failed scheduled run, and the job summary names the versions. When it passes on a release newer than the pin, move the
@@ -166,6 +167,12 @@ jobs:
             --opencode "$RUNNER_TEMP/opencode-latest/node_modules/.bin/opencode" \
             --dridh "$RUNNER_TEMP/tui-venv/bin/dridh" \
             --out "$RUNNER_TEMP/tui-smoke" --first-run-only
+
+      - name: Check the screenshot list against the contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 dridh/tests/e2e/tui_smoke_contract.py "$RUNNER_TEMP/tui-smoke" --first-run-only --summary "$GITHUB_STEP_SUMMARY"
 
       - name: Scan TUI evidence for credential material
         if: always()

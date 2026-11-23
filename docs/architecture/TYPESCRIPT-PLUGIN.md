@@ -3,7 +3,7 @@
 **Path:** `dridh/opencode/plugins/dridh-bridge/`  
 **Plugin ID:** `dridh.bridge`  
 **Tools:** `dridh_bridge` (Code Mode: `tools.dridh.bridge`) and `dridh_code`, the read-only code search  
-**SDK:** `@opencode/plugin` 2.2.6 (lock-pinned for the build); runs on OpenCode 2.2.5 or later. Node 24 is required to build and test it.
+**SDK:** `@opencode/plugin` 2.3.2 (lock-pinned for the build); runs on OpenCode 2.2.5 or later. Node 24 is required to build and test it.
 
 The plugin is the OpenCode side of Dridh. It registers a tool that forwards calls to the Python runtime through the [bridge protocol](BRIDGE-PROTOCOL.md), a read-only code search tool, and a terminal UI (TUI) that shows the state of a Dridh feature inside OpenCode.
 
@@ -159,10 +159,10 @@ same time. Lookups made while files have changed say so (`index.code_changed`).
 ## Metrics
 
 `/dridh-metrics`, the `m` key in the Dridh panel, or the panel's Metrics tab shows how the workspace is doing, as tables:
-features and time in stage; stories and repairs; model usage by stage, model and story (runs, failures, tokens, cost and
+features and time in stage; stories and repairs; which model each agent uses and why (Models by agent); model usage by stage, model and story (runs, failures, tokens, cost and
 time); reviews, deviations and delivery; the code index and the bridge. The rows come from `dridh ui metrics`, laid out
 by Python, so they are the same tables `dridh observe` prints in a terminal. The overview shows a one-line summary
-(stories done, repairs, agent runs, tokens and cost). The Coordinator's own conversation runs in OpenCode, not through
+(stories done, repairs, agent runs, tokens and cost) and a `MODELS` line, for example `opencode/big-pickle (all 18 agents)`. The Coordinator's own conversation runs in OpenCode, not through
 Dridh, so it is not counted; the table says so and points to `opencode stats --project .`.
 
 ## Coverage
@@ -170,7 +170,8 @@ Dridh, so it is not counted; the table says so and points to `opencode stats --p
 `/dridh-coverage`, the `v` key in the Dridh panel, or the panel's Coverage tab shows the completion matrix: one row per
 approved flow, grouped by use case, with the story that owns it, its state (proven, deviation approved or awaiting you,
 not proven, story in review or not started, and so on), the test that proves it or the ledger entry that explains it,
-and the files the story's code is in. `j`/`k` select a flow and show its text, approved contract, tests, code and ledger
-note; `a` approves a deviation that awaits a decision, on the real terminal with the typed confirmation. The rows come
+and the files the story's code is in (before the code is mapped: the files the story owns, marked `owns`). `j`/`k` select
+a flow and show its text, approved contract, tests, code, lot and ledger note; `enter` opens the story's execution lot
+in the Lots tab, `g` shows the whole ledger entry, and `a` approves a deviation that awaits a decision, on the real terminal with the typed confirmation. The rows come
 from `dridh ui coverage`, the same matrix `dridh coverage` prints, built by `coordinator/coverage.py` with the same rules
 as the delivery check. The overview shows a one-line summary once stories exist.

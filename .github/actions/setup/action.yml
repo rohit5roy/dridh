@@ -58,7 +58,7 @@ runs:
       run: |
         set -euo pipefail
         npm ci --no-audit --no-fund
-        test "$(./node_modules/.bin/opencode --version)" = "opencode v2.2.6"
+        test "$(./node_modules/.bin/opencode --version)" = "opencode v2.3.2"
 
     - name: Install the locked Python dependencies
       if: inputs.sync == 'true'

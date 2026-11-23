@@ -549,6 +549,31 @@ def _code_search(project: str):  # type: ignore[no-untyped-def]
     return CodeSearch(_workspace(project))
 
 
+@code_app.command("summarize")
+def code_summarize_command(
+    project: str = PROJECT_OPTION,
+    limit: int = typer.Option(200, "--limit", min=1, max=5000, help="At most this many entities in this run (20 per worker call)."),
+    model: str | None = typer.Option(None, "--model", help="Model for the Code Summarizer worker (default: as configured for it)."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="List the entities that would be summarised; no model is called."),
+    progress: bool = typer.Option(False, "--progress", help="Report progress on stderr as JSON lines."),
+) -> None:
+    """Write one-sentence summaries for indexed code with few doc comments, so search finds it by what it does.
+
+    Opt-in and bounded: it calls the Code Summarizer worker for up to --limit entities that have a body and less than
+    40 characters of doc comment, most-referenced first, and skips those already summarised for the same code."""
+    from dridh.code_reacher.indexer import require_index
+    from dridh.code_reacher.summaries import candidates, summarize
+
+    workspace = _workspace(project)
+    if dry_run:
+        with StateStore(workspace.state_db, workspace.workspace_id) as store:
+            run = require_index(store.read(), workspace.workspace_id)
+            rows = candidates(store.read(), workspace.workspace_id, run["id"], limit=limit)
+        _emit({"dry_run": True, "candidates": len(rows), "entities": [f"{r['path']}:{r['start_line']} {r['qualified_name']}" for r in rows]})
+        return
+    _emit(summarize(workspace, limit=limit, model=model, progress=_progress_reporter() if progress else None))
+
+
 @code_app.command("search")
 def code_search_command(
     query: str,

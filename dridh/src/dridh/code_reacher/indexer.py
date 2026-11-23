@@ -383,6 +383,10 @@ class CodeIndexer:
                     "FROM code_entity e JOIN code_file f ON f.id=e.file_id WHERE f.index_run_id=? AND e.entity_type!='module'", (run_id,)).fetchall()
                 rows = [row for row in rows if row["id"] not in have]
                 texts = self._texts_for(rows)
+                from dridh.code_reacher.summaries import summaries_for
+
+                for entity_id, summary in summaries_for(connection, [row["id"] for row in rows]).items():
+                    texts[entity_id] = f"{summary} {texts[entity_id]}"  # first: the embedded text is cut at TEXT_CHARS
                 items = [(row["id"], texts[row["id"]], snapshot) for row in rows]
                 written, vec_available = 0, False
                 self._progress("embeddings", 0, len(items))

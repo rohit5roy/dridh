@@ -108,6 +108,12 @@ class CodeSearch:
                     results.append({**_entity_dict(row), "matched_by": matched[entity_id], "score": round(scores[entity_id], 6)})
                 if len(results) >= limit:
                     break
+            from dridh.code_reacher.summaries import summaries_for
+
+            written = summaries_for(connection, [item["entity_id"] for item in results])
+            for item in results:
+                if item["entity_id"] in written:
+                    item["summary"] = written[item["entity_id"]]  # model-written (dridh code summarize), not a doc comment
         index: dict[str, Any] = {"run_id": run["id"], "source_sha": run["source_sha"]}
         if index_freshness(self.workspace)["changed"]:
             index["code_changed"] = True
