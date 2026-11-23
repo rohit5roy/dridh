@@ -120,6 +120,12 @@ N/A — the event is internal to the feature.
 
 Orders table with one row per order.
 
+| Record | Field | Type | Notes |
+|---|---|---|---|
+| Order | id | string | Primary key |
+| Order | status | string | PLACED or CANCELLED |
+| Order | created_at | timestamp | Set when the order is placed |
+
 ## Quality Approach
 
 ### Quality Risks and Assumptions

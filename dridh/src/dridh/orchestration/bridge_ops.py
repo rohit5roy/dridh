@@ -185,10 +185,10 @@ def dispatch_orchestration(request: BridgeRequest) -> dict[str, Any]:
         if operation == "planner.clarify":
             session_id = payload.get("session_id")
             question, answer = payload.get("question"), payload.get("answer")
-            source, model = payload.get("source", "user"), payload.get("model")
-            if not isinstance(session_id, str) or not isinstance(question, str) or not isinstance(answer, str) or not isinstance(source, str) or (model is not None and not isinstance(model, str)):
-                raise DridhError(ErrorCode.VALIDATION_FAILED, "planner.clarify requires session_id, question, answer, source and optional model strings.")
-            return planner.clarify(session_id, question=question, answer=answer, source=source, model=model)
+            source, model, rerun = payload.get("source", "user"), payload.get("model"), payload.get("rerun", True)
+            if not isinstance(session_id, str) or not isinstance(question, str) or not isinstance(answer, str) or not isinstance(source, str) or (model is not None and not isinstance(model, str)) or not isinstance(rerun, bool):
+                raise DridhError(ErrorCode.VALIDATION_FAILED, "planner.clarify requires session_id, question, answer, source, an optional model string and an optional rerun boolean.")
+            return planner.clarify(session_id, question=question, answer=answer, source=source, model=model, rerun=rerun)
         if operation == "planner.status":
             session_id = payload.get("session_id")
             if not isinstance(session_id, str):

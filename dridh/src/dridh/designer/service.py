@@ -24,7 +24,7 @@ from dridh.document_contracts.validator import (
     validate_tdd,
 )
 from dridh.ideator.service import IdeatorService, _atomic_pair, _atomic_write
-from dridh.integrations.opencode import OpenCodeRunner
+from dridh.integrations.opencode import AgentRunError, OpenCodeRunner
 from dridh.orchestration.repair import call_with_repair
 from dridh.state.design import DesignRepository, validated_tdd_model
 from dridh.state.documents import DocumentRepository, content_hash
@@ -644,6 +644,7 @@ class DesignerService:
             if re.search(r"(?m)^##\s+", value):
                 raise DridhError(ErrorCode.WORKER_FAILED, "Generated section bodies cannot introduce new level-two TDD sections.", details=(key,))
             normalised_sections[key] = str(redact(value.strip()))[:20000]
+        self._check_records(normalised_sections, normalised_trace)
         return {
             "components": components,
             "decisions": decisions,
@@ -651,6 +652,24 @@ class DesignerService:
             "traceability": normalised_trace,
             "sections": normalised_sections,
         }
+
+    @staticmethod
+    def _check_records(sections: dict[str, str], trace: list[dict[str, Any]]) -> None:
+        """Every record the design names must list its fields, checked here so a miss goes back to the worker."""
+        from dridh.document_contracts.markdown import parse_headings, parse_tables
+        from dridh.document_contracts.records import record_findings
+
+        text = "\n\n".join(f"## {'Data Model' if key == 'data_model' else key}\n\n{body}" for key, body in sections.items())
+        lines = text.splitlines()
+        findings = record_findings(lines, parse_headings(text), parse_tables(text), [(0, item["api_event"]) for item in trace])
+        if findings:
+            raise DridhError(
+                ErrorCode.VALIDATION_FAILED,
+                "The design names records without defining their fields.",
+                details=tuple(f"{item['entity']}: {item['message']}. {item['hint']}" for item in findings[:20]),
+                recovery="List each record's fields in data_model (an erDiagram with attributes, a table or a schema), "
+                         "or write N/A or OPEN with the reason when there is no persistent data.",
+            )
 
     def _render_tdd(self, payload: dict[str, Any], generated: dict[str, Any], source: dict[str, Any], *, allocated: dict[str, Any], review_status: str = "DRAFT") -> str:
         bundle = load_contract_bundle(STANDARDS_VERSION)
@@ -966,6 +985,15 @@ class DesignerService:
         try:
             _atomic_write(target, document)  # a crash mid-write leaves the previous document, never a half-written one
             self._save(payload)
+        except BaseException:
+            if previous is None:
+                target.unlink(missing_ok=True)
+            else:
+                target.write_bytes(previous)
+            raise
+        # The document is written and recorded as IN_REVIEW. What follows is advisory (the handoff review and Jev): a
+        # failure there, a provider error included, is recorded on the review and never removes the document.
+        try:
             try:
                 handoff = self._worker(
                     "dridh/workers/designer-handoff",
@@ -982,10 +1010,11 @@ class DesignerService:
                     "concerns": _strings(handoff.get("concerns", []), "handoff.concerns"),
                     "open_blockers": _strings(handoff.get("open_blockers", []), "handoff.open_blockers"),
                 }
-            except DridhError as exc:
+            except (DridhError, AgentRunError) as exc:
+                reason = f"{exc.code.value if isinstance(exc, AgentRunError) else exc.code.name}: {exc.message}"
                 payload["handoff"] = {
                     "summary": "Automated Handoff review did not complete; human review remains mandatory.",
-                    "concerns": [exc.message],
+                    "concerns": [reason[:500]],
                     "open_blockers": ["Handoff worker evidence unavailable; reviewers must inspect all checklist items."],
                 }
             if self._repair_log:
@@ -999,13 +1028,8 @@ class DesignerService:
                     f"decisions: {len(generated.get('decision_ids', []))}; risks: {len(generated.get('risk_ids', []))}; "
                     f"every approved Use Case and flow traced: yes."),
                 metadata={"source_revision_sha": generated.get("sha256")})
-            self._save(payload)
-        except BaseException:
-            if previous is None:
-                target.unlink(missing_ok=True)
-            else:
-                target.write_bytes(previous)
-            raise
+        finally:
+            self._save(payload)  # whatever the advisory steps recorded, the document and its review stand
         return self.status(session_id)
 
     def _validate_source_current(self, payload: dict[str, Any]) -> dict[str, Any]:

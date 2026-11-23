@@ -451,3 +451,75 @@ def test_indexer_prompt_contains_authoritative_component_id_and_flow_matrix() ->
         "CMP-01": ["SF-02.1"],
         "CMP-02": ["SF-02.1"],
     }
+
+
+def _clarify_fixture(tmp_path):
+    """A Planner whose indexer first reports a blocker, then answers from the prompt it is given."""
+
+    class Runner:
+        def __init__(self) -> None:
+            self.prompts: list[str] = []
+
+        def run_sync(self, *, agent: str, prompt: str, model: str | None = None, title: str | None = None):
+            assert agent == "dridh/workers/planner-indexer"
+            self.prompts.append(prompt)
+            blockers = [] if "HUMAN CLARIFICATIONS" in prompt else ["Which storage backs holds?", "Who may renew?"]
+            return SimpleNamespace(text=json.dumps({
+                "summary": "Index proposal.", "blockers": blockers, "stories": [_story("api")],
+                "project_structure": {"summary": "Layout.", "recommendations": []},
+            }))
+
+    workspace = type("Workspace", (), {"root": tmp_path / ".opencode" / "dridh", "project_root": tmp_path, "workspace_id": "clarify-fixture"})()
+    source = {"tdd_path": "feature_tdd.md", "tdd_revision_id": "t", "tdd_sha256": "a" * 64, "use_case_revision_id": "u", "use_case_sha256": "b" * 64}
+    baseline = {"components": [{"id": "CMP-01"}], "flows": [{"id": "SF-01.1", "use_case_id": "UC-01"}],
+                "tdd_traceability": [{"flow_id": "SF-01.1", "component_id": "CMP-01"}]}
+    runner = Runner()
+    service = PlannerService(workspace, runner=runner)
+    service._preflight = lambda _session: (source, object(), object(), {"required": False, "run_id": None, "files": []})
+    service._baseline = lambda *_args: baseline
+    return service, runner
+
+
+def test_clarify_revises_the_previous_plan_instead_of_starting_over(tmp_path) -> None:
+    service, runner = _clarify_fixture(tmp_path)
+    session_id = service.start("designer-0123456789ab")["session_id"]
+    assert service.status(session_id)["status"] == "BLOCKED"
+
+    revised = service.clarify(session_id, question="Which storage backs holds?", answer="SQLite")
+    assert revised["status"] == "INQUIRY" and revised["indexer_blockers"] == []
+    assert len(runner.prompts) == 2
+    prompt = runner.prompts[-1]
+    assert "PREVIOUS PLAN (revise, do not start over)" in prompt
+    assert "Which storage backs holds?" in prompt.split("PREVIOUS PLAN", 1)[1]  # the earlier reply, blockers included
+    assert "previous_indexer" not in service._load(session_id)  # dropped once the revision is stored
+
+
+def test_several_answers_are_applied_in_one_indexer_pass(tmp_path) -> None:
+    service, runner = _clarify_fixture(tmp_path)
+    session_id = service.start("designer-0123456789ab")["session_id"]
+
+    recorded = service.clarify(session_id, question="Which storage backs holds?", answer="SQLite", rerun=False)
+    assert len(runner.prompts) == 1  # recorded only, no indexer pass
+    assert recorded["status"] == "BLOCKED" and recorded["pending_clarifications"] is True
+    assert len(recorded["clarifications"]) == 1 and recorded["stories"] == 1  # the earlier plan is still there
+
+    final = service.clarify(session_id, question="Who may renew?", answer="Members only")
+    assert len(runner.prompts) == 2
+    assert "SQLite" in runner.prompts[-1] and "Members only" in runner.prompts[-1]
+    assert final["status"] == "INQUIRY" and final["pending_clarifications"] is False
+
+
+def test_generate_applies_recorded_answers_before_planning(tmp_path) -> None:
+    service, runner = _clarify_fixture(tmp_path)
+    session_id = service.start("designer-0123456789ab")["session_id"]
+    service.clarify(session_id, question="Which storage backs holds?", answer="SQLite", rerun=False)
+    service.clarify(session_id, question="Who may renew?", answer="Members only", rerun=False)
+    assert len(runner.prompts) == 1
+
+    service._run_components = lambda *a, **k: None  # stop after the indexer: only its rerun is under test
+    try:
+        service.generate(session_id)
+    except Exception:  # noqa: BLE001 - later planning steps are not set up in this fixture
+        pass
+    assert len(runner.prompts) == 2 and "PREVIOUS PLAN" in runner.prompts[-1]
+    assert service._load(session_id)["indexer"]["blockers"] == []

@@ -1,4 +1,4 @@
-# Story cards: the approved contract and file ownership
+# Story cards: the approved contract, its records and file ownership
 
 The Executor builds a story from its card alone. It cannot read the use cases or the technical design, so everything it
 must honour has to be on the card. Python supplies the facts and checks the card; the Planner's indexer worker only
@@ -21,6 +21,22 @@ When the Executor receives a story, Python attaches `approved_contract`:
 The Executor's prompt shows them under "Approved contract for this story": the names and parameters must be implemented
 exactly, and the contract wins over a todo or acceptance criterion that disagrees. An infrastructure story, and a plan
 whose design revision is not stored, gets no contract section and runs as before.
+
+## Records the contract names have fields
+
+A contract the Executor cannot build from is no contract. The technical design is rejected (`TDD_RECORD_WITHOUT_FIELDS`)
+when it names a record without saying what the record holds:
+
+- each entity of an `erDiagram` must list its attributes (`HOLD { string member_id }`);
+- each capitalised type an approved API reference takes or returns, such as `Hold` in `place_hold(member_id) -> Hold`
+  or `list[Hold]`, must be defined in the design: an `erDiagram` entity with attributes, a table with a `Record`,
+  `Entity` or `Type` column that has a row for it, a heading naming it with fields under it, or a schema or class in a
+  code block. Language and library types (`Optional`, `UUID`, `Date`, `String`, ...) are not records.
+
+The Data Model section must define fields (an `erDiagram` with attributes, a table, a schema or a `field: type` list) or
+say `N/A` or `OPEN` with the reason (`TDD_DATA_MODEL_NO_FIELDS`); "an orders table with one row per order" alone is
+refused. The Designer runs the same check on its generator's proposal, so a miss goes back to the worker through the
+repair loop before any document is written.
 
 ## Cards may not contradict the contract
 

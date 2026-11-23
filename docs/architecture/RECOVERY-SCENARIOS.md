@@ -1,6 +1,6 @@
 # Recovery scenarios
 
-> **Status date:** 2026-11-11. For each scenario, Dridh records the current state before recovering and never deletes or resets evidence blindly. **VERIFIED** means an automated test exercises the behaviour. **NOT BUILT** means there is no implementation to test.
+> **Status date:** 2026-11-22. For each scenario, Dridh records the current state before recovering and never deletes or resets evidence blindly. **VERIFIED** means an automated test exercises the behaviour. **NOT BUILT** means there is no implementation to test.
 
 Test paths are relative to `dridh/`. Scenarios marked as Docker tests need a Docker daemon; they run in CI's Python job.
 
@@ -22,5 +22,6 @@ Test paths are relative to `dridh/`. Scenarios marked as Docker tests need a Doc
 | 14 | Local integration conflict | VERIFIED | The PR and worktree are kept; nothing unlocks. `tests/integration/test_delivery_engine.py`: `test_a_merge_conflict_blocks_without_unlocking` |
 | 15 | Code Reacher index fails after local integration | VERIFIED | An indexer exception after the push is recorded: the `INDEXED` gate is recorded as failed with the reason, dependents stay locked, the push stands, and a retry is idempotent. `tests/integration/test_delivery_engine.py`: `test_an_index_failure_after_integration_is_recorded_blocks_the_unlock_and_can_be_retried` |
 | 16 | A human edits a reviewed document, making approval stale | VERIFIED | The review reopens; the plan approval is bound to a definition digest. `tests/integration/test_feature_lifecycle.py`: `test_changing_an_approved_document_reopens_the_review_and_recovers_when_restored` |
+| 17 | An advisory worker fails after a document is written | VERIFIED | The Designer writes the technical design and records it `IN_REVIEW` first; the Handoff review and the Jev checkpoint that follow are advisory. A provider error, quota or timeout there is recorded on the review ("Automated Handoff review did not complete", with the error code) and the document stays; the gate stays locked until a human approves. Only a failure while writing or recording the document itself restores the previous one. `tests/unit/test_designer_service.py`: `test_a_provider_failure_in_the_advisory_handoff_keeps_the_generated_tdd`, `test_an_interrupted_document_write_still_restores_the_previous_tdd` |
 
-All sixteen scenarios are covered by automated tests.
+All seventeen scenarios are covered by automated tests.

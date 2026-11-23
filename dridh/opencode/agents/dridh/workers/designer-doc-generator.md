@@ -41,4 +41,5 @@ Use concise, self-contained bodies for: `document_purpose`, `blocking_reviewers`
 - Provide complete decision context, alternatives, rationale, trade-offs, reversibility and evidence.
 - For unknown repository facts, mark OPEN and ask for confirmation. Do not manufacture OpenAPI/AsyncAPI contracts, schemas, cost measurements, capacity numbers or dates.
 - If APIs or events do not apply, say so explicitly with a reason.
+- Every record the design names must list its fields. In `data_model`, give each entity's fields (an `erDiagram` whose entities have attribute blocks, a `| Record | Field | Type |` table, or a schema), or write `N/A — <reason>` or `OPEN — <what is missing>` when there is no persistent data. A capitalised type in a traceability `api_event` signature, such as `-> Hold`, must be defined the same way. A record named without fields is rejected.
 - Return proposal JSON only. Do not write files, database state or approvals.
