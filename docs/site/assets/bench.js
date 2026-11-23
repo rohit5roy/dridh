@@ -28,11 +28,7 @@ const SUMMARIES = [ // top-1, code with every doc comment removed: before → af
   { name: "Java · full-text", before: 0.553, after: 0.749 },
   { name: "Java · vector", before: 0.799, after: 0.834 },
 ];
-const INDEX = [ // apache/dubbo, 35,975 entities, 4 CPUs
-  { name: "First full index", note: "parse + embed · 1.5 GB peak", seconds: 1308, label: "21.8 min" },
-  { name: "Structure only", note: "--no-embed", seconds: 14.9, label: "15 s" },
-  { name: "After editing a file", note: "1 file, 52 vectors", seconds: 13.1, label: "13 s" },
-];
+const FRESH = { files: 1210, seconds: 3.0, entities: 8934 }; // Shopizer, after editing one file (4 CPUs)
 const RUN_STATS = [ // one feature, every stage, opencode/big-pickle
   { value: 26, label: "agent runs, none failed" },
   { value: 0, label: "repairs needed", prefix: "" },
@@ -198,12 +194,27 @@ function summariesChart(host) {
   });
 }
 
-function indexChart(host) {
-  const max = INDEX[0].seconds;
-  // linear on purpose: the first index is long, every later one takes seconds; the short bars get a visible minimum
-  const rows = INDEX.map((m, i) => barRow(m, (v) => Math.max(v / max, 0.012), { value: m.seconds, label: m.label, mark: i > 0 }));
-  rows.forEach(({ row }) => host.append(row));
-  return () => {};
+function freshChart(host) {
+  // every file of the project as a tile; one is edited, lights up and is re-read; the rest stay as they are
+  const grid = el("div", "fresh-grid");
+  grid.setAttribute("role", "img");
+  grid.setAttribute("aria-label", `${FRESH.files} files; after an edit only one is re-read, in ${FRESH.seconds} seconds`);
+  const edited = 703;
+  for (let i = 0; i < FRESH.files; i += 1) grid.append(el("i", i === edited ? "is-edited" : ""));
+  const stats = el("div", "run-stats is-three");
+  const nums = [
+    { value: FRESH.seconds, decimals: 1, suffix: " s", label: "to update the index after an edit" },
+    { value: 1, label: "file re-read" },
+    { value: FRESH.files - 1, label: "files untouched" },
+  ].map((s) => {
+    const cell = el("div", "run-stat");
+    const big = el("strong", "", "0");
+    cell.append(big, el("span", "", s.label));
+    stats.append(cell);
+    return [big, s];
+  });
+  host.append(grid, stats);
+  return () => nums.forEach(([node, s]) => setTimeout(() => counter(node, s.value, { decimals: s.decimals ?? 0, suffix: s.suffix ?? "" }), reduce ? 0 : 900));
 }
 
 function runPanel(host) {
@@ -398,7 +409,7 @@ function localDiagram(host) {
   return () => {};
 }
 
-const CHARTS = { local: localDiagram, wins: winsBand, tokens: tokensChart, proof: proofChart, value: valuePanel, models: modelsChart, text: textVsModelChart, summaries: summariesChart, index: indexChart, run: runPanel, decides: decidesMatrix };
+const CHARTS = { local: localDiagram, wins: winsBand, tokens: tokensChart, proof: proofChart, value: valuePanel, models: modelsChart, text: textVsModelChart, summaries: summariesChart, fresh: freshChart, run: runPanel, decides: decidesMatrix };
 
 /* ------------------------------------------------------------------ wiring: draw each chart, animate it once when seen */
 

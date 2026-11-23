@@ -149,10 +149,10 @@ function draw() {
   }
   for (const p of packets) { // packets with a short fading trail
     p.trail.forEach((t, i) => {
-      ctx.fillStyle = rgba(AMBER, 0.05 + 0.25 * (i / p.trail.length));
+      ctx.fillStyle = rgba(AMBER, 0.03 + 0.15 * (i / p.trail.length));
       ctx.fillRect(t.x - 1, t.y - 1, 2, 2);
     });
-    ctx.fillStyle = rgba(AMBER, p.wait > 0 ? 0.85 : 0.6);
+    ctx.fillStyle = rgba(AMBER, p.wait > 0 ? 0.6 : 0.42);
     ctx.fillRect(p.x - 2, p.y - 2, 4, 4);
   }
 }

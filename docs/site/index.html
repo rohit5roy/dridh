@@ -148,9 +148,9 @@
         <a class="src" href="https://github.com/rohit5roy/dridh/blob/main/docs/benchmarks/CODE-SUMMARIES.md">the benchmark →</a>
       </figure>
       <figure class="panel chart">
-        <figcaption><b>Indexing a 36,000-entity Java project</b><span>apache/dubbo, 4 CPUs · once in full, then seconds</span></figcaption>
-        <div class="bars" data-chart="index"><p class="nojs">First index 21.8 min (1.5 GB peak); structure only 15 s; after editing a file 13 s.</p></div>
-        <a class="src" href="https://github.com/rohit5roy/dridh/blob/main/docs/benchmarks/CODE-REACHER-AT-SCALE.md">at scale →</a>
+        <figcaption><b>Stays current by itself</b><span>Shopizer, a real e-commerce codebase in Java (1,210 files): you edit one file, Dridh re-reads only that one, in the background</span></figcaption>
+        <div class="fresh" data-chart="fresh"><p class="nojs">After an edit: 3 s, 1 file re-read, the other 1,209 untouched.</p></div>
+        <a class="src" href="https://github.com/rohit5roy/dridh/blob/main/docs/benchmarks/CODE-REACHER-AT-SCALE.md">source →</a>
       </figure>
     </div>
   </section>
@@ -159,11 +159,11 @@
     <div class="wrap cols">
       <h2 class="label">in opencode</h2>
       <div class="shots">
-        <figure class="wide"><a href="assets/img/opencode-session-sidebar.png"><img src="assets/img/opencode-session-sidebar.png" width="1400" height="838" loading="lazy" alt="An OpenCode session with the Dridh Coordinator on the left and the Dridh sidebar on the right: stage 8 of 11, the documents, the open plan checklist and the next step"></a><figcaption>The Dridh sidebar in an OpenCode session.</figcaption></figure>
-        <figure><a href="assets/img/opencode-panel-reviewer.png"><img src="assets/img/opencode-panel-reviewer.png" width="1400" height="838" loading="lazy" alt="The Dridh document reviewer beside the OpenCode conversation, showing the generated central plan index"></a><figcaption>The plan, beside the conversation.</figcaption></figure>
-        <figure><a href="assets/img/reviewer-mermaid.png"><img src="assets/img/reviewer-mermaid.png" width="1400" height="756" loading="lazy" alt="The full-screen reviewer showing a technical design with its outline, validation and review status, and a Mermaid diagram drawn as text"></a><figcaption>A technical design, its diagram drawn as text.</figcaption></figure>
-        <figure><a href="assets/img/opencode-coverage-ledger.png"><img src="assets/img/opencode-coverage-ledger.png" width="1400" height="1119" loading="lazy" alt="The Dridh Coverage view: every approved flow with its story, state and proof or deviation, and the selected flow's ledger entry with the requirement, what was built, why and the decision"></a><figcaption>Every flow: proven, or a deviation you decide on.</figcaption></figure>
-        <figure><a href="assets/img/opencode-metrics-models.png"><img src="assets/img/opencode-metrics-models.png" width="1400" height="1119" loading="lazy" alt="The Dridh Metrics view: stories, runs and checkpoint lots, and the Models by agent table listing each agent, its model, where that model comes from and its runs"></a><figcaption>Which model each agent uses, and why.</figcaption></figure>
+        <figure class="wide"><a href="assets/img/panel-coverage.png"><img src="assets/img/panel-coverage.png" width="1400" height="507" loading="lazy" alt="The Dridh panel in OpenCode, Coverage tab: 8 of 8 flows proven, each with its story, the test that proves it and the code"></a><figcaption>Every flow proven: its story, its test and its code, in the Coverage tab.</figcaption></figure>
+        <figure><a href="assets/img/panel-design.png"><img src="assets/img/panel-design.png" width="1400" height="964" loading="lazy" alt="The Dridh document reviewer: a technical design with its outline, validation passing and its review approved"></a><figcaption>A technical design: outline, validation and review.</figcaption></figure>
+        <figure><a href="assets/img/panel-lot.png"><img src="assets/img/panel-lot.png" width="1400" height="712" loading="lazy" alt="A Dridh checkpoint lot: four stories passed, each with its attempt, its tests and its diff"></a><figcaption>A checkpoint lot: every story's tests and diff, for your verdict.</figcaption></figure>
+        <figure><a href="assets/img/panel-checklist.png"><img src="assets/img/panel-checklist.png" width="1400" height="334" loading="lazy" alt="The Dridh review checklist for the use cases, ticked by a person before approval"></a><figcaption>The review checklist you tick before approving.</figcaption></figure>
+        <figure><a href="assets/img/opencode-metrics-models.png"><img src="assets/img/opencode-metrics-models.png" width="1400" height="1119" loading="lazy" alt="The Dridh Metrics view: stories, runs and checkpoint lots, and which model each agent uses and why"></a><figcaption>Which model each agent uses, and what it costs.</figcaption></figure>
       </div>
     </div>
   </section>
