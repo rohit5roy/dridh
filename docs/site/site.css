@@ -400,3 +400,18 @@ button:active { transform: scale(.97); }
   .win-band { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (prefers-reduced-motion: reduce) { .local.is-ready .local-node, .local.is-ready .out-node, .local.is-ready .licence { transition: none; } }
+
+/* Stays current by itself: every file a tile, one edited and re-read */
+.fresh-grid { display: grid; grid-template-columns: repeat(55, minmax(0, 1fr)); gap: 2px; }
+.fresh-grid i { aspect-ratio: 1; background: #24251c; }
+.fresh-grid i.is-edited { background: #24251c; }
+.fresh.is-in .fresh-grid i.is-edited { animation: edited 2.6s var(--ease-out) 300ms 1 forwards; }
+@keyframes edited {
+  0% { background: #24251c; box-shadow: none; }
+  20% { background: var(--amber); box-shadow: 0 0 0 3px #ffb00055, 0 0 18px 4px #ffb00088; }
+  70% { background: var(--amber); box-shadow: 0 0 0 2px #ffb00044, 0 0 10px 2px #ffb00055; }
+  100% { background: var(--pass); box-shadow: 0 0 8px 1px #8fd18a66; }
+}
+.fresh .run-stats.is-three { margin-top: 18px; }
+@media (max-width: 560px) { .fresh-grid { grid-template-columns: repeat(35, minmax(0, 1fr)); gap: 1px; } }
+@media (prefers-reduced-motion: reduce) { .fresh.is-in .fresh-grid i.is-edited { animation: none; background: var(--pass); } }
