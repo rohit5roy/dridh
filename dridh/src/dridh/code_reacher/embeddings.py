@@ -92,7 +92,8 @@ def vector_freshness(connection: sqlite3.Connection, workspace_id: str) -> dict[
     the code is embedded again. One active key per workspace is kept, so a single row tells which key is stored."""
     row = connection.execute("SELECT model FROM code_embedding WHERE workspace_id=? LIMIT 1", (workspace_id,)).fetchone()
     stored, expected = (row[0] if row else None), expected_vector_key()
-    return {"stored": stored, "expected": expected, "stale": stored is not None and stored != expected}
+    return {"stored": stored, "expected": expected, "stale": stored is not None and stored != expected,
+            "degraded": bool(stored and stored.startswith(HASH_MODEL))}
 
 
 def model_cache_dir() -> str:
@@ -132,6 +133,9 @@ class FastEmbedProvider:
     reason = "local FastEmbed model"
 
     def __init__(self) -> None:
+        # Hugging Face's Xet transfer stalled for minutes behind HTTPS proxies before failing; the model is small, so the
+        # plain HTTPS download is used (set HF_HUB_DISABLE_XET=0 to opt back in). Must be set before huggingface_hub loads.
+        os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
         from fastembed import TextEmbedding  # lazy: pulls in ONNX Runtime
 
         try:  # ONNX Runtime logs warnings (e.g. "Failed to persist telemetry device ID" on macOS) that are not Dridh's
@@ -160,6 +164,23 @@ class FastEmbedProvider:
         return vectors
 
 
+DEGRADED_REMEDY_INSTALL = ("Install the search model: run the Dridh installer again, or `uv tool install --with "
+                           "fastembed==0.9.1 dridh` (`pip install 'dridh[embeddings]'`), then `dridh index`.")
+DEGRADED_REMEDY_DOWNLOAD = ("The model is downloaded once (about 130 MB) from huggingface.co into ~/.cache/dridh/fastembed. "
+                            "Check the network or proxy, or unpack the release's dridh-embedding-model.tar.gz there, then run "
+                            "`dridh index` again.")
+
+
+def fallback_reason(exc: BaseException) -> str:
+    """Why the real model is not used, and how to get it back: the reason shown with every degraded result."""
+    detail = str(exc).strip().splitlines()[0][:200] if str(exc).strip() else ""
+    if isinstance(exc, ImportError):
+        cause, remedy = "the FastEmbed package is not installed", DEGRADED_REMEDY_INSTALL
+    else:
+        cause, remedy = f"the search model could not be loaded or downloaded ({type(exc).__name__}: {detail})", DEGRADED_REMEDY_DOWNLOAD
+    return f"Semantic search is degraded: {cause}. {HashingEmbedder.reason}. {remedy}"
+
+
 def default_provider() -> EmbeddingProvider:
     """FastEmbed when installed and usable, else the labelled hashing fallback (never silently)."""
     if os.environ.get("DRIDH_EMBEDDINGS", "").lower() != "hash":
@@ -167,7 +188,7 @@ def default_provider() -> EmbeddingProvider:
             return FastEmbedProvider()
         except Exception as exc:  # noqa: BLE001 - not installed, no cached model, offline, ...
             fallback = HashingEmbedder()
-            fallback.reason = f"FastEmbed unavailable ({type(exc).__name__}); {HashingEmbedder.reason}"
+            fallback.reason = fallback_reason(exc)
             return fallback
     return HashingEmbedder()
 

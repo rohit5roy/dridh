@@ -6,7 +6,9 @@ from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+
+from dridh.common.errors import DridhError, ErrorCode
 
 CONFIG_FILENAME = "dridh.yaml"
 CONFIG_SCHEMA_VERSION = 1
@@ -50,6 +52,16 @@ class ContainersConfig(BaseModel):
     memory: str = Field(default="2g", pattern=r"^[0-9]+[kmg]$")
     cpus: float = Field(default=2.0, gt=0, le=64)
     docker_socket: bool = False  # mount the Docker socket so Testcontainers in the tests can start containers
+
+    @field_validator("mode", mode="before")
+    @classmethod
+    def _unquoted_off(cls, value: object) -> object:
+        """YAML reads an unquoted ``off`` (and ``no``) as false: that is what the person meant."""
+        if value is False:
+            return "off"
+        if value is True:
+            raise ValueError("mode is true; write one of auto, docker or off (quote it: \"off\")")
+        return value
 
 
 class ExecutionConfig(BaseModel):
@@ -147,14 +159,28 @@ class DridhConfig(BaseModel):
     delivery: DeliveryConfig = Field(default_factory=DeliveryConfig)
 
 
+class ConfigurationInvalid(DridhError, ValueError):
+    """dridh.yaml is not valid: a Dridh error (readable, with the fix), and still a ValueError for older callers."""
+
+
 def load_config(path: Path) -> DridhConfig:
     """Load and validate dridh.yaml from path."""
     if not path.exists():
         raise FileNotFoundError(f"Config not found: {path}")
-    raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+    try:
+        raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except yaml.YAMLError as exc:
+        raise ConfigurationInvalid(ErrorCode.CONFIGURATION_ERROR, f"{path.name} is not valid YAML.", details=(str(exc)[:300],),
+                                   recovery=f"Fix {path}.") from None
     if not isinstance(raw, dict):
-        raise ValueError("dridh.yaml must be a mapping")
-    return DridhConfig.model_validate(raw)
+        raise ConfigurationInvalid(ErrorCode.CONFIGURATION_ERROR, f"{path.name} must be a mapping.", recovery=f"Fix {path}.")
+    try:
+        return DridhConfig.model_validate(raw)
+    except ValidationError as exc:
+        problems = tuple(f"{'.'.join(str(p) for p in error['loc'])}: {error['msg']} (found {error.get('input')!r})"[:300]
+                         for error in exc.errors()[:10])
+        raise ConfigurationInvalid(ErrorCode.CONFIGURATION_ERROR, f"{path.name} has invalid settings.", details=problems,
+                                   recovery=f"Fix them in {path}.") from None
 
 
 def save_config(path: Path, config: DridhConfig) -> None:

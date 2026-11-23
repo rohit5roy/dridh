@@ -15,7 +15,10 @@ Design notes and reference for the parts of Dridh that are not obvious from the 
 
 ## Benchmarks
 
-- [Code Reacher at scale](benchmarks/CODE-REACHER-AT-SCALE.md): indexing and search measured on two large public repositories, with the defects those runs found.
+- [Code Reacher at scale](benchmarks/CODE-REACHER-AT-SCALE.md): indexing time and memory on large public repositories (a 36,000-entity Java project takes about 22 minutes), with the defects those runs found.
+- [Search models](benchmarks/SEARCH-MODELS.md): 19 local embedding models compared on CodeSearchNet, and why `gte-small` with richer text is shipped.
+- [Code summaries](benchmarks/CODE-SUMMARIES.md): what `dridh code summarize` changes for code without doc comments (top-1 68% → 84% in Python).
+- [A real feature on a free model](benchmarks/REAL-MODEL-RUN.md): one feature through every stage with `opencode/big-pickle`, its numbers, and the defects it found.
 
 ## Security
 

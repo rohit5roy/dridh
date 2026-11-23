@@ -517,7 +517,7 @@ def test_unavailable_fastembed_degrades_visibly_never_silently(monkeypatch):
     monkeypatch.setitem(sys.modules, "fastembed", None)  # makes `import fastembed` raise ImportError
     provider = emb.default_provider()
     assert provider.model_id == "dridh-hash-v1" and provider.degraded is True
-    assert "FastEmbed unavailable" in provider.reason and "not a language model" in provider.reason
+    assert "Semantic search is degraded" in provider.reason and "not a language model" in provider.reason
     monkeypatch.setenv("DRIDH_EMBEDDINGS", "hash")
     assert emb.default_provider().degraded is True
 
@@ -542,3 +542,29 @@ def test_fastembed_provider_when_installed():
         pytest.skip(f"Local-only (developer machine): the FastEmbed model is unavailable ({type(exc).__name__})")
     vectors = provider.embed(["find an order by id", "render a pdf"])
     assert len(vectors[0]) == provider.dimensions == 384 and provider.degraded is False
+
+
+def test_a_fallback_embedder_says_why_and_how_to_fix_it_and_the_panel_is_told(repo, monkeypatch, capsys):
+    from dridh.code_reacher import embeddings
+    from dridh.ui.state import _code_index
+
+    _project, info = repo
+    monkeypatch.delenv("DRIDH_EMBEDDINGS", raising=False)
+
+    def missing():
+        raise ImportError("No module named 'fastembed'")
+
+    monkeypatch.setattr(embeddings, "FastEmbedProvider", missing)
+    provider = embeddings.default_provider()
+    assert provider.degraded and "not installed" in provider.reason and "dridh index" in provider.reason
+
+    def offline():
+        raise OSError("CAS Client Error: connection refused")
+
+    monkeypatch.setattr(embeddings, "FastEmbedProvider", offline)
+    reason = embeddings.default_provider().reason
+    assert "could not be loaded or downloaded (OSError: CAS Client Error" in reason and "huggingface.co" in reason
+
+    result = CodeIndexer(info, provider=embeddings.default_provider()).index()
+    assert result["embeddings"]["degraded"] is True
+    assert _code_index(info)["search_degraded"] is True

@@ -162,6 +162,8 @@ def _confirm(expected: str, summary: str) -> None:
         raise DridhError(
             ErrorCode.APPROVAL_REQUIRED,
             "The confirmation did not match. Nothing was changed.",
+            details=(f"expected: {expected}", f"typed: {typed[:120]}"),
+            recovery="Run the command again and type the confirmation exactly as shown, on one line.",
         )
 
 
@@ -522,6 +524,9 @@ def index_command(
         root = Path(freshness["folder"])
     result = CodeIndexer(workspace).index(embed=not no_embed, root=root, progress=_progress_reporter() if progress else None)
     result["story_mapping"] = refresh_mapping(workspace)
+    embeddings = result.get("embeddings") or {}
+    if embeddings.get("degraded"):  # never silent: the JSON says so, and so does the terminal
+        sys.stderr.write(f"warning: {embeddings.get('reason')}\n")
     _emit(result)
 
 
@@ -2017,9 +2022,49 @@ def ideator_start(
     objective: str,
     project: str = PROJECT_OPTION,
     existing_context: str = typer.Option("", "--existing-context", help="Relevant workspace facts already known."),
+    feature: str | None = typer.Option(None, "--feature", help="The feature this discovery is for (default: the only "
+                                       "active feature without one). Binding it lets the feature advance as stages are approved."),
 ) -> None:
-    """Start a resumable requirements discovery session."""
-    _emit(_ideator(project).start(objective, existing_context=existing_context))
+    """Start a resumable requirements discovery session for a feature."""
+    from dridh.coordinator.lifecycle import FeatureLifecycle
+    from dridh.orchestration.bridge_ops import _ideator_feature
+
+    info = open_workspace(_project(project))
+    chosen = _ideator_feature(info, feature)
+    started = IdeatorService(info).start(objective, existing_context=existing_context)
+    if chosen is None:
+        started["warning"] = ("No feature is bound to this session, so the feature lifecycle cannot advance. Create one "
+                              "first (`dridh feature create \"<name>\"`) and start with --feature <slug>.")
+    else:
+        FeatureLifecycle(info).bind_session(chosen["slug"], "ideator_session_id", started["session_id"], actor=f"human:{getpass.getuser()}")
+        started["feature"] = chosen["slug"]
+    _emit(started)
+
+
+def _advance_after_approval(project: str, column: str, session_id: str, reviewer: str, result: dict[str, Any]) -> dict[str, Any]:
+    """After a stage approval, move the feature it belongs to as far as its evidence allows (what `dridh feature sync`
+    does), so `dridh feature status` follows the approvals without extra commands. Best effort: the approval stands
+    whatever happens here, and the reason is reported."""
+    from dridh.coordinator.lifecycle import FeatureLifecycle
+
+    try:
+        info = open_workspace(_project(project))
+        lifecycle = FeatureLifecycle(info)
+        for feature in lifecycle.list_features():
+            if feature.get("status") != "ACTIVE":
+                continue
+            bound = lifecycle.status(feature["slug"])["sessions"]  # binds designer/planner sessions found downstream
+            if bound.get(column) == session_id:
+                synced = lifecycle.sync(feature["slug"], actor=f"human:{reviewer}")
+                result["feature"] = {"slug": feature["slug"], "stage": synced["status"]["feature"]["stage"],
+                                     "moves": [f"{m['from']} → {m['to']}" for m in synced["moves"]]}
+                return result
+        result["feature"] = None
+        result["feature_note"] = ("No feature is bound to this session, so no feature advanced. Bind it with "
+                                  "`dridh feature bind`, then run `dridh feature sync`.")
+    except DridhError as exc:
+        result["feature_note"] = f"The approval is recorded; the feature did not advance: {exc.message}"
+    return result
 
 
 @ideator_app.command("answer")
@@ -2076,7 +2121,8 @@ def ideator_approve(
         challenge["confirmation"],
         f"Approve {challenge['document']} with SHA-256 {challenge['sha256']} for review {challenge['review_id']}?",
     )
-    _emit(service.approve(session_id, reviewer=reviewer, confirmation=challenge["confirmation"]))
+    _emit(_advance_after_approval(project, "ideator_session_id", session_id, reviewer,
+                                  service.approve(session_id, reviewer=reviewer, confirmation=challenge["confirmation"])))
 
 
 @ideator_app.command("gate")
@@ -2175,7 +2221,8 @@ def designer_approve(
         challenge["confirmation"],
         f"Approve {challenge['document']} with SHA-256 {challenge['sha256']} for review {challenge['review_id']}?",
     )
-    _emit(service.approve(session_id, reviewer=reviewer, confirmation=challenge["confirmation"]))
+    _emit(_advance_after_approval(project, "designer_session_id", session_id, reviewer,
+                                  service.approve(session_id, reviewer=reviewer, confirmation=challenge["confirmation"])))
 
 
 planner_app = typer.Typer(help="Run the approved-design Planner stage and reconcile central, component and testing plans.", no_args_is_help=True)
@@ -2244,7 +2291,8 @@ def planner_approve(
         challenge["confirmation"],
         f"Approve {challenge['story_count']} planned stories (plan digest {challenge['plan_digest'][:12]}) in {challenge['central_plan']}?",
     )
-    _emit(service.approve(session_id, reviewer=reviewer, confirmation=challenge["confirmation"]))
+    _emit(_advance_after_approval(project, "planner_session_id", session_id, reviewer,
+                                  service.approve(session_id, reviewer=reviewer, confirmation=challenge["confirmation"])))
 
 
 @planner_app.command("gate")

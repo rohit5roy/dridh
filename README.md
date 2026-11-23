@@ -137,4 +137,5 @@ available from the copyright holder, Rohit Roy. Contributors accept the [Contrib
 
 ## Learn more
 
+- [Benchmarks](docs/README.md#benchmarks): search models, code at scale, code summaries, a real feature on a free model
 - [Documentation](docs/README.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [AGPL-3.0 licence](LICENSE)

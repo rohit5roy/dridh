@@ -122,3 +122,27 @@ def test_the_cli_dry_run_lists_candidates_without_a_model(indexed) -> None:
     assert out.exit_code == 0, out.output
     payload = json.loads(out.output)
     assert payload["dry_run"] and payload["candidates"] == 1 and "place_hold" in payload["entities"][0]
+
+
+def test_an_exhausted_quota_stops_the_run_keeps_what_is_done_and_says_how_to_continue(indexed, monkeypatch) -> None:
+    from dridh.code_reacher import summaries
+    from dridh.integrations.opencode import AgentErrorCode, AgentRunError
+
+    for index in range(3):  # enough code for three batches of one entity
+        (indexed.project_root / f"extra_{index}.py").write_text(f"def extra_{index}(a, b):\n    c = a + b\n    return c * {index}\n")
+    CodeIndexer(indexed, provider=HashingEmbedder()).index()
+    monkeypatch.setattr(summaries, "BATCH", 1)
+
+    class RunsOut(Summarizer):
+        def run_sync(self, **kwargs):
+            if len(self.prompts) >= 1:
+                self.prompts.append(kwargs["prompt"])
+                raise AgentRunError(AgentErrorCode.QUOTA_EXHAUSTED, "The model's quota or free usage limit is exhausted.")
+            return super().run_sync(**kwargs)
+
+    worker = RunsOut()
+    result = summarize(indexed, runner=worker, embed=False)
+    assert result["summarised"] == 1 and len(worker.prompts) == 2  # stopped at the first exhausted batch, not one call per batch
+    assert result["failed_batches"] == [] and "--model" in result["stopped"] and result["note"] == result["stopped"]
+    again = summarize(indexed, runner=Summarizer(), embed=False)  # another model: continues with the rest
+    assert again["summarised"] == 3 and again["stopped"] is None

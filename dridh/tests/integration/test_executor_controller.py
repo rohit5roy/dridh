@@ -36,6 +36,12 @@ class FakePlanner:
     def __init__(self, stories: list[dict[str, Any]]) -> None:
         self.stories = {s["story_id"]: dict(s, status="NOT_STARTED") for s in stories}
         self.history: list[dict[str, str]] = []
+        self.inconsistent: DridhError | None = None  # set to make the plan's consistency check fail
+
+    def sync(self, session_id: str, *, check_only: bool = False) -> dict[str, Any]:
+        if self.inconsistent is not None:
+            raise self.inconsistent
+        return {"session_id": session_id, "consistent": True}
 
     def gate(self, session_id: str) -> dict[str, Any]:
         return {"unlocked": True, "plan_digest": "a" * 64}
@@ -626,3 +632,17 @@ def test_a_story_that_passes_after_the_thresholds_is_still_reviewed(env):
     result = finish(controller, run["id"])
     assert result["run"]["status"] == "COMPLETED", result["run"]
     assert all(s["status"] == "COMPLETED" for s in planner.stories.values())
+
+
+def test_a_plan_that_fails_its_consistency_check_is_refused_before_any_run_or_story_changes(env, monkeypatch) -> None:
+    info, feature = env
+    planner = FakePlanner([_story("ST-001")])
+    planner.inconsistent = DridhError(ErrorCode.CONFIGURATION_CONFLICT, "The SQLite test-plan definitions changed independently of the approved Planner proposal.")
+    controller = _controller(info, planner, ScriptedAgent(_good))
+    monkeypatch.setattr(controller, "_context", lambda ref: ({"id": feature["id"], "slug": "f"}, "planner-aaaaaaaaaaaa"))
+    with pytest.raises(DridhError) as refused:
+        controller.challenge("f")
+    assert refused.value.code is ErrorCode.CONFIGURATION_CONFLICT
+    with StateStore(info.state_db, info.workspace_id) as store:
+        assert store.read().execute("SELECT COUNT(*) FROM execution_run").fetchone()[0] == 0
+    assert planner.history == [] and planner.stories["ST-001"]["status"] == "NOT_STARTED"

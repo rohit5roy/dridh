@@ -24,6 +24,12 @@ dridh code summarize --limit 200    # summarise up to 200 of them
    full-text search and placed at the front of the entity's embedded text, and the entity's vector is rebuilt.
    `dridh code search` results include it as `summary`.
 
+## Does it help?
+
+Measured on CodeSearchNet with every doc comment removed (see [the benchmark](../benchmarks/CODE-SUMMARIES.md)), the
+default hybrid search found the right function first for 84% of Python queries instead of 68%, and for 82% of Java
+queries instead of 73%. Full-text search gains most; vector search, which already reads the code, gains 2 to 4 points.
+
 ## Limits
 
 - It runs only when asked, never during `dridh index` or the background re-index.
@@ -32,3 +38,5 @@ dridh code summarize --limit 200    # summarise up to 200 of them
 - `--model` chooses the worker's model. Without it, the worker's model is resolved like any agent's; see
   [Agent runner](AGENT-RUNNER.md#which-model-a-run-uses). Use a cheap model: the task is one short sentence per entity.
 - `dridh observe` shows how many entities of the current index have summaries.
+- When the model's quota or free usage limit runs out, the run stops at that batch, keeps what it wrote and says so
+  (`stopped` in its output): run it again later, or with `--model`, and it continues with the entities still missing.

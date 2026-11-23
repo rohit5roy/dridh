@@ -106,6 +106,9 @@ class ExecutionController:
         gate = self.planner.gate(session_id)
         if not gate.get("unlocked"):
             raise DridhError(ErrorCode.APPROVAL_REQUIRED, "The plan is not approved for execution.", details=(str(gate.get("reason", "")),))
+        # The same consistency checks every story status change runs, read-only: an inconsistent plan is refused here,
+        # before a run is created or a story is marked IN_PROGRESS (it used to fail on the first status change).
+        self.planner.sync(session_id, check_only=True)
         stories = self.planner.execution_stories(session_id)
         pending = [s for s in stories if s["status"] != "COMPLETED"]
         if not pending:

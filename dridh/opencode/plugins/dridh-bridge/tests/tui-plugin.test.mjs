@@ -128,6 +128,10 @@ test("a coverage row leads to its story's lot (enter) and to its whole ledger en
   assert.match(source, /code_source === "owned" \? "owns      "/, "before code is mapped the detail says which files the story owns")
 })
 
+test("degraded code search (the hashing fallback) is shown in the overview, never silent", () => {
+  assert.match(source, /<Show when=\{state\(\)\?\.code_index\?\.search_degraded\}>[\s\S]{0,300}degraded: words only, no search model/)
+})
+
 test("the overview says which model the agents use; the Metrics tab has each agent", () => {
   assert.match(source, /<Show when=\{state\(\)\?\.models\}>[\s\S]{0,300}m per agent/)
 })

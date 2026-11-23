@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Any
 
 from dridh.common.errors import DridhError, ErrorCode
+from dridh.integrations.opencode import AgentErrorCode, AgentRunError
 from dridh.state.store import StateStore, utc_now
 from dridh.workspace.layout import WorkspaceInfo
 
@@ -149,6 +150,7 @@ def summarize(workspace: WorkspaceInfo, *, limit: int = DEFAULT_LIMIT, model: st
     runner = runner or _runner(workspace)
     written: list[str] = []
     failed: list[str] = []
+    stopped: str | None = None
     progress("summaries", 0, len(rows))
     for start in range(0, len(rows), BATCH):
         batch = rows[start:start + BATCH]
@@ -159,6 +161,15 @@ def summarize(workspace: WorkspaceInfo, *, limit: int = DEFAULT_LIMIT, model: st
 
         try:
             outcome = call_with_repair(run_worker, prompt(batch), label="Code Summarizer", validate=lambda reply, ids=ids: check(reply, ids))
+        except AgentRunError as exc:
+            if exc.code is AgentErrorCode.QUOTA_EXHAUSTED:
+                # Every later batch would fail the same way: stop, keep what is done, and say how to go on.
+                stopped = (f"Stopped after {len(written)} of {len(rows)} entities: {exc.message} Run `dridh code summarize` "
+                           "again later, or now with `--model <another model>`; it continues with the entities not yet "
+                           "summarised.")
+                break
+            failed.append(f"entities {start + 1}-{start + len(batch)}: {exc.code.value}: {exc.message}"[:300])
+            continue
         except Exception as exc:  # noqa: BLE001 - one failed batch is reported; the batches before it are kept
             failed.append(f"entities {start + 1}-{start + len(batch)}: {getattr(exc, 'message', None) or type(exc).__name__}"[:300])
             continue
@@ -173,7 +184,8 @@ def summarize(workspace: WorkspaceInfo, *, limit: int = DEFAULT_LIMIT, model: st
         embedded = reembed(workspace, written)
     return {"candidates": len(chosen), "summarised": len(written), "model": label, "failed_batches": failed,
             "skipped_changed_files": len(chosen) - len(rows), "embeddings": embedded,
-            "note": "Run again to summarise more (each run takes at most --limit entities)." if len(chosen) >= limit else None}
+            "stopped": stopped,
+            "note": stopped or ("Run again to summarise more (each run takes at most --limit entities)." if len(chosen) >= limit else None)}
 
 
 def _store(connection: Any, workspace_id: str, row: dict[str, Any], summary: str, model: str) -> None:

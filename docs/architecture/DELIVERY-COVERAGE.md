@@ -6,6 +6,11 @@ Every approved use-case flow ends in one of two ways before a feature may leave 
   whose name carries the flow ID proves it.
 - **Explained:** `LEDGER.md` has a `DEVIATED`, `NOT_DONE` or `WONT_DO` entry for the flow, with a current human approval.
 
+A plan may give one flow to several stories, for example a store, a service and a command-line story that together
+serve a use case. Then proof by any of them proves the flow, and a `NOT_DONE` entry for that flow from another of them is
+**superseded**: it needs no decision and does not block. A `DEVIATED` or `WONT_DO` entry is never superseded, since a
+behaviour change or a decision not to build is a person's call even when a test passes.
+
 Scripts decide all of this from the approved documents, the plan and the test results. No model call is involved
 beyond the Executor's own run, whose flow report is a claim that the scripts check.
 
@@ -42,6 +47,10 @@ to `.opencode/dridh/documents/LEDGER.md` (created with Table 14 when missing) an
 - the original requirement is copied from the approved Use Case rows;
 - the approver is left empty. The same flow and story never get a second entry;
 - the result is validated before it is written, so a failed draft never leaves a broken ledger behind.
+
+A story's `NOT_DONE` is not drafted while another story that owns the same flow is unfinished or already proves it:
+a store story need not build its command-line flows, and the last owner's report decides. The attempt's evidence lists
+these flows under `deferred_to_other_stories`.
 
 A `BLOCKED` story's flows are recorded only when a human decides to drop it:
 `dridh ledger draft --story ST-1.2 --reason "..."`.
