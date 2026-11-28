@@ -174,3 +174,41 @@ def test_a_second_feature_does_not_overwrite_the_first_features_use_cases(tmp_pa
     _approved_use_cases(info, second["slug"])
     assert (project / "docs/dridh/002-REFUNDS/001-USE-CASES.md").is_file()
     assert (project / "docs/dridh/001-ORDER-INTAKE/001-USE-CASES.md").read_text(encoding="utf-8") == before
+
+
+def test_the_document_tree_lists_each_features_folder_with_status(tmp_path: Path) -> None:
+    from dridh.ui.documents import document_tree, render_tree
+
+    project, info = _project(tmp_path)
+    lifecycle = FeatureLifecycle(info)
+    lifecycle.create_feature("Refunds", actor="test")
+    feature = lifecycle.create_feature("Order intake", actor="test")
+    _approved_use_cases(info, feature["slug"])
+    (project / "docs/dridh/002-ORDER-INTAKE/NOTES.md").write_text("# my notes\n", encoding="utf-8")
+    tree = document_tree(info)
+    folders = [(item["folder"], [node["name"] for node in item["tree"]]) for item in tree["features"]]
+    assert folders == [("docs/dridh/001-REFUNDS", []), ("docs/dridh/002-ORDER-INTAKE", ["001-USE-CASES.md", "NOTES.md"])]
+    statuses = {node["name"]: node["status"] for node in tree["features"][1]["tree"]}
+    assert statuses == {"001-USE-CASES.md": "approved", "NOTES.md": "untracked"}
+
+    use_cases = project / "docs/dridh/002-ORDER-INTAKE/001-USE-CASES.md"
+    use_cases.write_text(use_cases.read_text(encoding="utf-8") + "\nAn edit outside Dridh.\n", encoding="utf-8")
+    text = render_tree(document_tree(info))
+    assert "docs/dridh/" in text and "├── 001-REFUNDS/" in text and "└── 002-ORDER-INTAKE/" in text
+    assert "001-USE-CASES.md" in text and "edited outside Dridh" in text and "not recorded by Dridh" in text
+
+
+def test_documents_tree_prints_the_tree_on_the_command_line(tmp_path: Path) -> None:
+    import os
+    import subprocess
+
+    project, info = _project(tmp_path)
+    feature = FeatureLifecycle(info).create_feature("Order intake", actor="test")
+    _approved_use_cases(info, feature["slug"])
+    env = {**os.environ, "DRIDH_OUTPUT": "text"}
+    text = subprocess.run([sys.executable, "-m", "dridh", "documents", "tree", "--project", str(project)],
+                          capture_output=True, text=True, env=env, check=True).stdout
+    assert "001-ORDER-INTAKE/" in text and "001-USE-CASES.md" in text and "approved" in text
+    data = json.loads(subprocess.run([sys.executable, "-m", "dridh", "ui", "documents", "--project", str(project)],
+                                     capture_output=True, text=True, check=True).stdout)
+    assert data["features"][0]["tree"][0]["path"] == "docs/dridh/001-ORDER-INTAKE/001-USE-CASES.md"

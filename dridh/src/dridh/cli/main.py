@@ -1337,6 +1337,15 @@ def documents_record(
     _emit(outcome)
 
 
+@documents_app.command("tree")
+def documents_tree(project: str = PROJECT_OPTION) -> None:
+    """Every document Dridh wrote, as a tree per feature folder, with each document's status. Read-only."""
+    from dridh.ui.documents import document_tree, render_tree
+
+    data = document_tree(_workspace(project))
+    typer.echo(to_json(data) if wants_json() else render_tree(data))
+
+
 @documents_app.command("show")
 def documents_show(path: str = PATH_ARGUMENT, project: str = PROJECT_OPTION) -> None:
     """Show a document's persisted metadata, revision history and latest validations. Read-only."""
@@ -2599,6 +2608,15 @@ def ui_document(stage: str = typer.Argument(..., help="use_cases, design or plan
     from dridh.ui.state import document_view, dump
 
     typer.echo(dump(document_view(_workspace(project), stage, feature)))
+
+
+@ui_app.command("documents")
+def ui_documents(project: str = PROJECT_OPTION) -> None:
+    """Every document as a tree per feature folder, with status, for the panels' document tree."""
+    from dridh.ui.documents import document_tree
+    from dridh.ui.state import dump
+
+    typer.echo(dump(document_tree(_workspace(project))))
 
 
 @ui_app.command("metrics")

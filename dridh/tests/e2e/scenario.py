@@ -709,7 +709,7 @@ def prepare_tui_review(project: Path) -> dict[str, Any]:
     from planner_test_helpers import IDEATOR_SESSION
 
     from dridh.ideator.service import CHECKLIST, IdeatorService
-    from dridh.ledger.drafts import LEDGER_PATH, add_drafts
+    from dridh.ledger.drafts import add_drafts, ledger_path
     from dridh.ledger.flows import approved_flows, story_flows
     from dridh.state.documents import DocumentRepository
     from dridh.state.reviews import ReviewRepository
@@ -743,7 +743,7 @@ def prepare_tui_review(project: Path) -> dict[str, Any]:
         raise RuntimeError("the Phase 13 fixture has no story linked to an approved flow")
     # E2E-46 imports a legacy-format ledger from the project root. Carry that row into the workspace ledger so this
     # additional screenshot-only draft gets the next deterministic ID rather than colliding with the existing LDG-01.
-    canonical_ledger = project / LEDGER_PATH
+    canonical_ledger = project / ledger_path(info)
     canonical_ledger.parent.mkdir(parents=True, exist_ok=True)
     canonical_ledger.write_text((project / "LEDGER.md").read_text(encoding="utf-8"), encoding="utf-8")
     ledger = add_drafts(info, [{"flow": flow, "status": "NOT_DONE", "story": story,
@@ -855,9 +855,9 @@ def phase13_planner_checks() -> None:
             for suffix in required_suffixes:
                 if not any(path.endswith(suffix) for path in paths):
                     artifact_details["missing"].append(suffix)
-            if not any("/COMPONENT-MASTER.md" in path for path in paths):
+            if not any(path.endswith("COMPONENT-MASTER.md") for path in paths):  # COMPONENT-MASTER.md or 001-COMPONENT-MASTER.md
                 artifact_details["missing"].append("COMPONENT-MASTER.md")
-            if not any("/PHASE-" in path for path in paths):
+            if not any("PHASE-" in Path(path).name for path in paths):
                 artifact_details["missing"].append("PHASE-*.md")
             with StateStore(info.state_db, info.workspace_id) as store:
                 documents = DocumentRepository(store.connection, info.workspace_id)

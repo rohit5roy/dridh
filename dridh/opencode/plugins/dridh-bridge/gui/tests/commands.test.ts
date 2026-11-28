@@ -6,6 +6,7 @@ import { CONFIRM, failure, permitted, pythonFromShebang, READ, readReply, RECORD
 test("views, records and decisions are each limited to their own commands", () => {
   assert.ok(permitted(READ, ["ui", "state"]))
   assert.ok(permitted(READ, ["ui", "document", "design"]))
+  assert.ok(permitted(READ, ["ui", "documents"]))
   assert.ok(permitted(RECORD, ["reviews", "checklist", "r-1", "An item", "--checked"]))
   assert.ok(permitted(CONFIRM, ["designer", "approve", "designer-1", "--reviewer", "Ada"]))
   // A view is not a record, a record is not a decision, and nothing else is listed.

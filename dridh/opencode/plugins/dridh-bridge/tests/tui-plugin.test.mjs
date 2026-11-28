@@ -114,11 +114,18 @@ test("metrics are one key, one command and one tab away, as tables laid out by P
 test("the completion matrix is one key, one command and one tab away, and a waiting deviation is approved on the terminal", () => {
   assert.match(source, /slash: \{ name: "dridh-coverage" \}, run: \(\) => show\(\{ name: "coverage" \}\)/)
   assert.match(source, /\["coverage", "Coverage"\]/, "a Coverage tab in the panel")
-  assert.match(source, /v: "coverage" \}\[key\.name/, "v switches to it from any panel tab")
+  assert.match(source, /v: "coverage"[^}]*\}\[key\.name/, "v switches to it from any panel tab")
   assert.match(source, /dridhJson\(\["ui", "coverage"\], root\(\)\)/, "the matrix comes from `dridh ui coverage`, the same as `dridh coverage`")
   assert.match(source, /if \(key\.name === "a" && row\?\.detail\?\.awaiting\)[\s\S]{0,400}onTerminal\([\s\S]{0,300}\["ledger", "approve", row\.detail\.ledger, "--reviewer", name\]/,
     "only a deviation that awaits a decision, and only through the typed confirmation on the terminal")
   assert.match(source, /<Show when=\{state\(\)\?\.coverage\}>[\s\S]{0,300}v every flow/, "the overview shows the coverage line")
+})
+
+test("every document is one key, one command and one tab away, as a tree per feature folder", () => {
+  assert.match(source, /slash: \{ name: "dridh-files" \}, run: \(\) => show\(\{ name: "files" \}\)/)
+  assert.match(source, /\["files", "Files"\]/, "a Files tab in the panel")
+  assert.match(source, /t: "files" \}\[key\.name/, "t switches to it from any panel tab")
+  assert.match(source, /dridhJson\(\["ui", "documents"\], root\(\)\)/, "the tree comes from `dridh ui documents`, the same as `dridh documents tree`")
 })
 
 test("a coverage row leads to its story's lot (enter) and to its whole ledger entry (g)", () => {

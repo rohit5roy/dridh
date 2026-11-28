@@ -76,10 +76,37 @@ flowchart LR
 | Stage | What Dridh produces | Your step |
 |---|---|---|
 | Use Cases | Actors, flows and business rules (`001-USE-CASES.md`) | Tick the checklist, then `dridh ideator approve <session>` |
-| Technical design | A validated technical design document | Tick the checklist, then `dridh designer approve <session>` |
-| Plan | Central plan, component plans, story cards, test plan | Tick the checklist, then `dridh planner approve <session>` |
-| Execution | One Git worktree and branch per story; each story's tests run in their own Docker container (on the host when Docker is missing). Every use-case flow must be proven by a passing test named for it, or recorded in `LEDGER.md` as a deviation | `dridh execute start <feature>`, then a verdict per checkpoint lot (`dridh execute review`), and a decision on each deviation (`dridh ledger approve`) |
-| Delivery | Optional stacked pull requests on GitHub (off by default; Dridh never merges) | `dridh feature complete` |
+| Technical design | A validated technical design document (`002-TECHNICAL-DESIGN.md`) | Tick the checklist, then `dridh designer approve <session>` |
+| Plan | Central plan, component plans, story cards, test plan (`003-` to `006-`, and `components/`) | Tick the checklist, then `dridh planner approve <session>` |
+| Execution | One Git worktree and branch per story; each story's tests run in their own Docker container (on the host when Docker is missing). Every use-case flow must be proven by a passing test named for it, or recorded in the ledger (`007-LEDGER.md`) as a deviation | `dridh execute start <feature>`, then a verdict per checkpoint lot (`dridh execute review`), and a decision on each deviation (`dridh ledger approve`) |
+| Delivery | Optional stacked pull requests on GitHub (off by default; Dridh never merges). The feature's documents are committed with its code | `dridh feature complete` |
+
+### Where the documents are
+
+Each feature has its own folder in your repository, numbered in the order features are created. File names are upper
+case and numbered in the order the stages write them:
+
+```
+docs/dridh/
+├── 001-ORDER-INTAKE/
+│   ├── 001-USE-CASES.md
+│   ├── 002-TECHNICAL-DESIGN.md
+│   ├── 003-CENTRAL-PLAN-INDEX.md
+│   ├── 004-TEST-PLAN.md
+│   ├── 005-PROJECT-STRUCTURE-PLAN.md
+│   ├── 006-PLANNING-REVIEW-CHECKLIST.md
+│   ├── 007-LEDGER.md
+│   └── components/CMP-01/
+│       ├── 001-COMPONENT-MASTER.md
+│       └── 002-PHASE-1-ORDER-SERVICE.md
+└── 002-REFUNDS/
+```
+
+`dridh documents tree` prints this tree with each document's status (approved, waiting for review, changed since
+approval, edited outside Dridh). The same tree is `/dridh-files` (or `t`) in the OpenCode terminal panel and *All
+documents* in the desktop panel. With delivery on, Dridh commits the feature's folder to its integration branch, so the
+documents arrive in the same pull request as the code; a document edited since Dridh recorded it is left out and listed.
+Features created before this layout keep their earlier file names.
 
 Each approval shows what you are approving and asks you to type a confirmation. If a document changes afterwards, the
 approval goes stale and Dridh sends the feature back for review.
