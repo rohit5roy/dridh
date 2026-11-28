@@ -28,7 +28,7 @@ DRIDH_OPENCODE_BIN="$(command -v opencode)" uv run pytest -m "not live and not d
 ```
 
 Every pull request runs the same checks in CI (`.github/workflows/ci.yml`), in stages: security and lint first, then
-the tests and the packaged wheel, then the Docker full-system E2E. The `CI gate` job must pass before merging.
+the tests and the packaged wheel, then the Docker full-system E2E (with real OpenCode terminal UI screenshots) and the desktop app E2E (the real OpenCode desktop app on a virtual screen: review, approve with the typed confirmation, document tree; screenshots in the `desktop-e2e-evidence` artifact). Run the desktop one locally with `python3 dridh/tests/desktop/desktop_smoke.py --app <extracted AppImage> --dridh <dridh> --out <dir>` (needs Xvfb, xdotool and ImageMagick). The `CI gate` job must pass before merging.
 
 ## Rules the code keeps
 

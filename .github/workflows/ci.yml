@@ -6,7 +6,8 @@
 #   2  python-tests   the whole Category A suite, incl. real Docker container tests       } in parallel
 #      plugin-tests   TypeScript bridge client and TUI                                    }
 #      packaging      the built wheel installed into a clean environment                  }
-#   3  docker-e2e     full-system E2E, including real OpenCode TUI screenshots (Category C)
+#   3  docker-e2e     full-system E2E, including real OpenCode TUI screenshots (Category C)        } in parallel
+#      desktop-e2e    the real OpenCode desktop app (2.4.2) with Dridh: review, approve, tree    }
 #      gate           the one required check for branch protection
 #
 # Toolchain versions and caches live in .github/actions/setup. Third-party actions are pinned to commit SHAs (kept
@@ -315,9 +316,69 @@ jobs:
           if-no-files-found: warn
           retention-days: 90
 
+  desktop-e2e:
+    name: "3 · OpenCode desktop app E2E (2.4.2, screenshots)"
+    needs: [python-tests, plugin-tests, packaging]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      # The desktop app release the desktop part is tested on, pinned by checksum.
+      DESKTOP_URL: https://github.com/anomalyco/opencode/releases/download/v2.4.2/opencode-desktop-linux-x86_64.AppImage
+      DESKTOP_SHA256: b42c238487bdd08ee551d08053e6a5a765bd7bec65f7ca899fec66464bd0fb2b
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.13"
+
+      - name: Download the wheel
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dridh-wheel
+          path: ${{ runner.temp }}/dist
+
+      - name: Install the wheel, a virtual screen and the desktop app
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/python" -m pip install --quiet "$RUNNER_TEMP"/dist/dridh-*.whl
+          sudo apt-get update -q
+          sudo apt-get install -y -q xvfb xdotool imagemagick libnss3 libgbm1 libasound2t64 libgtk-3-0t64 libxss1 >/dev/null
+          curl -fsSL -o "$RUNNER_TEMP/opencode.AppImage" "$DESKTOP_URL"
+          echo "$DESKTOP_SHA256  $RUNNER_TEMP/opencode.AppImage" | sha256sum --check
+          chmod +x "$RUNNER_TEMP/opencode.AppImage"
+          (cd "$RUNNER_TEMP" && ./opencode.AppImage --appimage-extract >/dev/null)
+
+      - name: Drive the desktop app with Dridh installed
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 dridh/tests/desktop/desktop_smoke.py --app "$RUNNER_TEMP/squashfs-root" --dridh "$RUNNER_TEMP/venv/bin/dridh" \
+            --out "$RUNNER_TEMP/desktop" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Scan desktop evidence for credential material
+        if: always()
+        shell: bash
+        run: python3 .github/scripts/scan_secrets.py --paths "$RUNNER_TEMP/desktop"
+
+      - name: Upload desktop evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: desktop-e2e-evidence
+          path: ${{ runner.temp }}/desktop
+          if-no-files-found: warn
+          retention-days: 90
+
   gate:
     name: CI gate
-    needs: [changes, security, build, python-tests, plugin-tests, packaging, docker-e2e]
+    needs: [changes, security, build, python-tests, plugin-tests, packaging, docker-e2e, desktop-e2e]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -330,6 +391,7 @@ jobs:
             changes=${{ needs.changes.result }} security=${{ needs.security.result }} build=${{ needs.build.result }}
             python-tests=${{ needs.python-tests.result }} plugin-tests=${{ needs.plugin-tests.result }}
             packaging=${{ needs.packaging.result }} docker-e2e=${{ needs.docker-e2e.result }}
+            desktop-e2e=${{ needs.desktop-e2e.result }}
         run: |
           set -uo pipefail
           { echo "## CI gate"; echo; echo "| Stage job | Result |"; echo "|---|---|"; } >> "$GITHUB_STEP_SUMMARY"

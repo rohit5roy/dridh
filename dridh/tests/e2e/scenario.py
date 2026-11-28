@@ -717,10 +717,11 @@ def prepare_tui_review(project: Path) -> dict[str, Any]:
     from dridh.workspace.layout import open_workspace
 
     info = open_workspace(project)
+    use_cases = str(IdeatorService(info)._load(IDEATOR_SESSION)["generated"]["path"])  # in the feature's folder
     with StateStore(info.state_db, info.workspace_id) as store, store.transaction() as connection:
         documents = DocumentRepository(connection, info.workspace_id)
-        metadata = documents.document_metadata("001-USE-CASES.md")
-        revision = documents.current_revision("001-USE-CASES.md")
+        metadata = documents.document_metadata(use_cases)
+        revision = documents.current_revision(use_cases)
         if metadata is None or revision is None:
             raise RuntimeError("the Phase 13 fixture has no current Use Cases revision")
         repository = ReviewRepository(connection, info.workspace_id)
@@ -774,7 +775,8 @@ def phase13_planner_checks() -> None:
     gate: dict[str, Any] | None = None
     setup_error = ""
     try:
-        info, designer_session_id = seed_approved_baseline(project)
+        # The project has feature folders: the documents live in docs/dridh/001-ORDER-INTAKE/ with numbered names.
+        info, designer_session_id = seed_approved_baseline(project, feature="Order Intake")
         runner = OpenCodeRunner(
             executable=OPENCODE,
             workspace_root=project,
@@ -929,7 +931,7 @@ def phase13_planner_checks() -> None:
             from dridh.coordinator.lifecycle import FeatureLifecycle
 
             lifecycle = FeatureLifecycle(info)
-            lifecycle.create_feature("Order Intake", actor="e2e:lifecycle")
+            # The fixture created the feature (with its documents folder) and bound its Ideator and Designer sessions.
             lifecycle.bind_session("order-intake", "ideator_session_id", IDEATOR_SESSION, actor="e2e:lifecycle")
             synced = lifecycle.sync("order-intake", actor="e2e:lifecycle")
             visited = [move["to"] for move in synced["moves"]]
