@@ -25,6 +25,7 @@ FULL_REQUIRED_SCREENSHOTS = (
     "13-observability-metrics",
     "14-completion-matrix-deviation",
     "15-execution-lot-review",
+    "16-documents-tree",
 )
 
 FIRST_RUN_REQUIRED_SCREENSHOTS = (

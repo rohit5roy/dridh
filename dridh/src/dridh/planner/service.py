@@ -1658,7 +1658,9 @@ class PlannerService:
                             for item in payload["components"]["components"]}
         tdd_by_id = {item.component_id: item for item in tdd.components}
         baseline = self._baseline(source, tdd, use_cases, code_index)
-        layout = self._layout(payload)
+        # A plan keeps the folder it was written to, even if its sessions were bound to a feature afterwards.
+        recorded_dir = str(Path(generated["central_plan"]).parent.as_posix())
+        layout = LEGACY if recorded_dir == LEGACY.plan_dir else DocumentLayout(recorded_dir)
         central_path = generated["central_plan"]
         test_path = generated["test_plan"]
         central_text = self._render_central({**payload, "baseline": baseline}, stories, story_ids, depths, partners, story_statuses)

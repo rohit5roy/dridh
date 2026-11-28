@@ -212,3 +212,24 @@ def test_documents_tree_prints_the_tree_on_the_command_line(tmp_path: Path) -> N
     data = json.loads(subprocess.run([sys.executable, "-m", "dridh", "ui", "documents", "--project", str(project)],
                                      capture_output=True, text=True, check=True).stdout)
     assert data["features"][0]["tree"][0]["path"] == "docs/dridh/001-ORDER-INTAKE/001-USE-CASES.md"
+
+
+def test_a_plan_keeps_its_folder_when_its_sessions_join_a_feature_later(tmp_path: Path) -> None:
+    """Found by the Docker E2E: a plan written with the legacy names, whose sessions were bound to a (new-layout) feature
+    afterwards, was looked for under the feature's folder when execution synchronised its status."""
+    from tests.e2e.planner_test_helpers import seed_approved_baseline
+
+    info, designer_session = seed_approved_baseline(tmp_path / "project")
+    planner = PlannerService(info, runner=PlannerWorkers())
+    session = planner.start(designer_session, model="m")["session_id"]
+    assert planner.generate(session, model="m")["status"] == "GENERATED"
+    review = planner.open_review(session)
+    tick_review(info, review["review_id"])
+    planner.approve(session, reviewer="r", confirmation=planner.approval_challenge(session)["confirmation"])
+    lifecycle = FeatureLifecycle(info)
+    feature = lifecycle.create_feature("Order intake", actor="test")
+    lifecycle.bind_session(feature["slug"], "designer_session_id", designer_session, actor="test")
+    lifecycle.bind_session(feature["slug"], "planner_session_id", session, actor="test")
+    planner.sync(session)  # raised "A planning projection is missing from SQLite" before the fix
+    assert planner.gate(session)["unlocked"] is True
+    assert planner._load(session)["generated"]["central_plan"] == ".opencode/dridh/documents/CENTRAL-PLAN-INDEX.md"
