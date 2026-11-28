@@ -224,6 +224,10 @@ def run_e2e(evidence_root: Path, run_id: str) -> int:
     summary["missing"] = list(final_verdict.missing)
     summary["failed"] = list(final_verdict.failed)
     (evidence / "e2e-summary.json").write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n")
+    # The scenario's own checks are only in the evidence; print the failed ones so the CI log says what broke.
+    for item in summary["checks"]:
+        if item["id"] in final_verdict.failed:
+            print(f"FAILED {item['id']} {item.get('title', '')} :: {str(item.get('detail'))[:1500]}", flush=True)
     print(f"verdict {summary['verdict']} missing={len(final_verdict.missing)} failed={len(final_verdict.failed)} evidence={evidence}")
     return 0 if final_verdict.passed else 1
 
