@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from dridh.ledger.drafts import LEDGER_PATH, ledger_file
+from dridh.ledger.drafts import ledger_file, ledger_path
 from dridh.ledger.flows import EXPLAINING, approved_flows, delivered_flows, flow_owners, resolve_flow, story_flows
 from dridh.state.store import StateStore
 from dridh.workspace.layout import WorkspaceInfo
@@ -48,7 +48,7 @@ def delivery_readiness(workspace: WorkspaceInfo) -> dict[str, Any]:
     if ledger_file(workspace).is_file():
         from dridh.ledger.service import LedgerService
 
-        report = LedgerService(workspace).reconcile(LEDGER_PATH)
+        report = LedgerService(workspace).reconcile(ledger_path(workspace))
         for finding in report["findings"]:
             if finding["severity"] != "ERROR" or finding.get("entity") in superseded:
                 continue  # a superseded NOT_DONE entry needs no decision, approved, rejected or not

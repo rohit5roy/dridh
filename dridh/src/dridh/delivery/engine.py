@@ -25,9 +25,11 @@ from dridh.delivery.policy import FAILING, evaluate_checks, select_base
 from dridh.executor.policy import detect_test_command, run_test_command
 from dridh.executor.story_runner import story_branch
 from dridh.planner.service import PlannerService
+from dridh.state.documents import DocumentRepository, content_hash
 from dridh.state.execution import ExecutionRepository
 from dridh.state.runs import RunRepository
 from dridh.state.store import StateStore
+from dridh.workspace.documents_layout import feature_layout
 from dridh.workspace.layout import WorkspaceInfo
 from dridh.workspace.worktree import WorktreeManager
 
@@ -287,22 +289,24 @@ class DeliveryEngine:
             raise DridhError(ErrorCode.CONFIGURATION_CONFLICT, "The PR head changed since its checks passed; eligibility was withdrawn.")
         name = self.integration_branch(feature)
         worktree = self._integration_worktree(feature, name)
+        before = self._git("rev-parse", "HEAD", cwd=worktree).stdout.strip()
         merge = self._git("merge", "--no-ff", "-m", f"Integrate {story_id}: {story['title']}"[:200], head, cwd=worktree, check=False)
         if merge.returncode != 0:
             self._git("merge", "--abort", cwd=worktree, check=False)
             self._gate(story_id, "LOCALLY_INTEGRATED", "BLOCKED", {"reason": "merge conflict", "detail": str(redact(merge.stdout + merge.stderr))[:400]}, head)
             return {"story_id": story_id, "integrated": False, "blocked": "The story conflicts with the integration branch; the PR and worktree are preserved."}
+        documents = self._commit_documents(worktree, run["feature_id"], feature)
         merged = self._git("rev-parse", "HEAD", cwd=worktree).stdout.strip()
         command = self.execution.test_command or detect_test_command(worktree)
         if command is None:
-            self._git("reset", "--hard", "HEAD^", cwd=worktree)
+            self._git("reset", "--hard", before, cwd=worktree)
             raise DridhError(ErrorCode.CONFIGURATION_CONFLICT, "No test command is recognised for integration verification; set execution.test_command.")
         test = asyncio.run(run_test_command(command, worktree, timeout=self.execution.test_timeout_seconds))
         if not test["passed"]:
-            self._git("reset", "--hard", "HEAD^", cwd=worktree)
+            self._git("reset", "--hard", before, cwd=worktree)
             self._gate(story_id, "LOCALLY_INTEGRATED", "FAIL", {"tests": test["command"], "exit_code": test["exit_code"], "output": test["output"][-600:]}, head)
             return {"story_id": story_id, "integrated": False, "blocked": "Integration verification failed; the merge was undone."}
-        self._gate(story_id, "LOCALLY_INTEGRATED", "PASS", {"tests": test["command"]}, merged)
+        self._gate(story_id, "LOCALLY_INTEGRATED", "PASS", {"tests": test["command"], "documents": documents}, merged)
         pushed = self._git("push", self.config.remote, f"{name}:{name}", cwd=worktree, check=False)  # fast-forward only, never forced
         if pushed.returncode != 0:
             self._gate(story_id, "INTEGRATION_PUSHED", "BLOCKED", {"reason": "the remote integration branch diverged", "detail": str(redact(pushed.stderr))[:400]}, merged)
@@ -338,6 +342,37 @@ class DeliveryEngine:
                 gate_id=str(uuid.uuid4()), story_id=story_id, gate="DEPENDENTS_UNLOCKED", status="PASS",
                 evidence={"integration_commit": merged, "branch": name}, revision_sha=merged)
         return {"story_id": story_id, "integrated": True, "unlocked": True, "integration_commit": merged, "branch": name}
+
+    def _commit_documents(self, worktree: Path, feature_id: str, feature: str) -> dict[str, Any]:
+        """Commit the feature's documents folder to the integration branch, so they reach GitHub with the code.
+
+        Only a document whose file still matches the revision Dridh recorded is committed (approved documents are the
+        recorded revision); one edited outside Dridh is left out and listed. Features from before feature folders have
+        no folder and commit nothing. Returns what was committed and what was left out.
+        """
+        with self._store() as store:
+            connection = store.read()
+            layout = feature_layout(connection, self.workspace.workspace_id, feature_id)
+            if layout.folder is None:
+                return {"folder": None, "committed": [], "skipped": []}
+            source = Path(self.workspace.project_root) / layout.folder
+            documents = DocumentRepository(connection, self.workspace.workspace_id)
+            committed, skipped = [], []
+            for path in sorted(source.rglob("*.md")) if source.is_dir() else ():
+                relative = path.relative_to(self.workspace.project_root).as_posix()
+                revision = documents.current_revision(relative)
+                if revision is None or content_hash(path.read_text(encoding="utf-8")) != revision.content_sha256:
+                    skipped.append(relative)
+                    continue
+                target = worktree / relative
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(path.read_text(encoding="utf-8"), encoding="utf-8")
+                committed.append(relative)
+        if committed:
+            self._git("add", "--", *committed, cwd=worktree)
+            if self._git("diff", "--cached", "--quiet", cwd=worktree, check=False).returncode != 0:
+                self._git("commit", "-m", f"Dridh documents for {feature}", cwd=worktree)
+        return {"folder": layout.folder, "committed": committed, "skipped": skipped}
 
     def _integration_worktree(self, feature: str, name: str) -> Path:
         worktree_id = f"integration-{feature}"

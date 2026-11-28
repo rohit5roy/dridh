@@ -27,6 +27,7 @@ from dridh.state.documents import DocumentRepository, content_hash
 from dridh.state.reviews import ReviewRepository
 from dridh.state.store import StateStore
 from dridh.state.usecases import UseCaseRepository, validated_model
+from dridh.workspace.documents_layout import session_layout
 from dridh.workspace.layout import WorkspaceInfo
 
 SESSION_SCHEMA = "dridh.inquiry"
@@ -480,30 +481,31 @@ class IdeatorService:
                 validate=self._validate_proposal,
             )
         self._validate_proposal(proposal)
-        canonical_path = self.project_root / "001-USE-CASES.md"
+        rel = self._use_cases_path(session_id)
+        canonical_path = self.project_root / rel
         if canonical_path.exists():
             if not canonical_path.is_file() or canonical_path.is_symlink():
-                raise DridhError(ErrorCode.CONFIGURATION_CONFLICT, "001-USE-CASES.md is not a regular file; it was not overwritten.")
+                raise DridhError(ErrorCode.CONFIGURATION_CONFLICT, f"{rel} is not a regular file; it was not overwritten.")
             with StateStore(self.workspace.state_db, self.workspace.workspace_id) as store:
                 documents = DocumentRepository(store.connection, self.workspace.workspace_id)
-                managed = documents.document_metadata("001-USE-CASES.md")
-                current_revision = documents.current_revision("001-USE-CASES.md")
+                managed = documents.document_metadata(rel)
+                current_revision = documents.current_revision(rel)
                 current_hash = content_hash(canonical_path.read_text(encoding="utf-8"))
                 if managed is None or current_revision is None:
                     raise DridhError(
                         ErrorCode.CONFIGURATION_CONFLICT,
-                        "001-USE-CASES.md already exists and is not a Dridh-managed revision; it was not overwritten.",
+                        f"{rel} already exists and is not a Dridh-managed revision; it was not overwritten.",
                         recovery="Import or rename the existing document before generating a new canonical Use Case document.",
                     )
                 if current_hash != current_revision.content_sha256:
                     raise DridhError(
                         ErrorCode.CONFIGURATION_CONFLICT,
-                        "001-USE-CASES.md has unrecorded edits since its last Dridh revision; it was not overwritten.",
+                        f"{rel} has unrecorded edits since its last Dridh revision; it was not overwritten.",
                         recovery="Review the edit and record/import a new validated revision before regenerating.",
                     )
         self._refuse_other_sessions_document(session_id)  # checked again: workers may have run for minutes
-        document, allocated = self._render_document(proposal, questions=payload["questions"])
-        validation = validate_use_cases(document, file="001-USE-CASES.md")
+        document, allocated = self._render_document(proposal, questions=payload["questions"], source_document=rel)
+        validation = validate_use_cases(document, file=Path(rel).name)
         if not validation.ok:
             raise DridhError(
                 ErrorCode.VALIDATION_FAILED,
@@ -511,7 +513,7 @@ class IdeatorService:
                 details=tuple(validation.errors[:20]),
                 recovery="Correct the discovery answers and regenerate; generated Markdown is not accepted without deterministic validation.",
             )
-        projection_model = validated_model(document, "001-USE-CASES.md")
+        projection_model = validated_model(document, Path(rel).name)
         handoff: dict[str, Any] = {"summary": "Deterministic validation passed.", "items": list(CHECKLIST)}
         if run_workers:
             handoff_result = self._worker(
@@ -546,7 +548,7 @@ class IdeatorService:
         if self._repair_log:
             payload["repair_history"] = list(self._repair_log)
         payload["generated"] = {
-            "path": "001-USE-CASES.md",
+            "path": rel,
             "sha256": content_hash(document),
             "actor_ids": allocated["actor_ids"],
             "use_case_ids": allocated["use_case_ids"],
@@ -559,7 +561,7 @@ class IdeatorService:
                 with store.transaction() as connection:
                     documents = DocumentRepository(connection, self.workspace.workspace_id)
                     revision, _ = documents.record_revision(
-                        relative_path="001-USE-CASES.md",
+                        relative_path=rel,
                         document_type="use_cases",
                         content=document,
                         standards_version=STANDARDS_VERSION,
@@ -571,7 +573,7 @@ class IdeatorService:
                         validator_version=f"dridh-{STANDARDS_VERSION}",
                         result=validation,
                     )
-                    metadata = documents.document_metadata("001-USE-CASES.md")
+                    metadata = documents.document_metadata(rel)
                     if metadata is None:
                         raise DridhError(ErrorCode.INTERNAL_ERROR, "The generated Use Case document was not registered.")
                     projection_counts = UseCaseRepository(connection, self.workspace.workspace_id).replace_projection(
@@ -608,7 +610,7 @@ class IdeatorService:
         checklist_lines = [
             "# Use Case Review Checklist",
             "",
-            "- **Document:** 001-USE-CASES.md",
+            f"- **Document:** {rel}",
             f"- **SHA-256:** {payload['generated']['sha256']}",
             f"- **Review ID:** {review_id}",
             "",
@@ -626,7 +628,7 @@ class IdeatorService:
             "ok": True,
             "session_id": session_id,
             "status": "IN_REVIEW",
-            "document": "001-USE-CASES.md",
+            "document": rel,
             "sha256": payload["generated"]["sha256"],
             "revision_id": revision.id,
             "review_id": review_id,
@@ -695,9 +697,9 @@ class IdeatorService:
                 if not isinstance(flow_priority, str) or flow_priority not in PRIORITIES:
                     raise IdeatorError(f"flow in {case['title']!r} has an invalid priority")
 
-    def _render_document(self, proposal: dict[str, Any], *, questions: list[dict[str, Any]] | None = None) -> tuple[str, dict[str, Any]]:
+    def _render_document(self, proposal: dict[str, Any], *, questions: list[dict[str, Any]] | None = None,
+                         source_document: str = "001-USE-CASES.md") -> tuple[str, dict[str, Any]]:
         self._validate_proposal(proposal)
-        source_document = "001-USE-CASES.md"
         with StateStore(self.workspace.state_db, self.workspace.workspace_id) as store:
             with store.transaction() as connection:
                 allocator = CoordinatorIdAllocator(connection)
@@ -900,12 +902,22 @@ class IdeatorService:
         return run_checkpoint(self.workspace, stage="ideator", subject_id=session_id, agent_id="dridh/ideator", summary=summary,
                               service=service, metadata={"source_revision_sha": content_hash(document)})
 
+    def _use_cases_path(self, session_id: str) -> str:
+        """Where this session's Use Case document lives: the path it was generated at, else its feature's folder
+        (``docs/dridh/NNN-FEATURE/001-USE-CASES.md``), else the legacy ``001-USE-CASES.md`` for a session with no feature."""
+        generated = self._load(session_id).get("generated") or {}
+        if generated.get("path"):
+            return str(generated["path"])
+        with StateStore(self.workspace.state_db, self.workspace.workspace_id) as store:
+            return session_layout(store.connection, self.workspace.workspace_id, ideator=session_id).use_cases()
+
     def _refuse_other_sessions_document(self, session_id: str) -> None:
         """Never let one session overwrite the canonical document another session put under review or got approved.
 
         Found in a real-model run: a Coordinator generated a throwaway session over a document that was awaiting approval.
         """
-        canonical = self.project_root / "001-USE-CASES.md"
+        rel = self._use_cases_path(session_id)
+        canonical = self.project_root / rel
         if not canonical.is_file():
             return
         current = content_hash(canonical.read_text(encoding="utf-8"))
@@ -917,13 +929,15 @@ class IdeatorService:
                 other = self._load(folder.name)
             except DridhError:
                 continue
-            if other.get("status") in ("IN_REVIEW", "APPROVED") and (other.get("generated") or {}).get("sha256") == current:
+            generated = other.get("generated") or {}
+            if (other.get("status") in ("IN_REVIEW", "APPROVED") and generated.get("sha256") == current
+                    and (generated.get("path") or "001-USE-CASES.md") == rel):
                 raise DridhError(
                     ErrorCode.CONFIGURATION_CONFLICT,
-                    f"001-USE-CASES.md belongs to Ideator session {folder.name} ({other['status']}); this session may not overwrite it.",
+                    f"{rel} belongs to Ideator session {folder.name} ({other['status']}); this session may not overwrite it.",
                     details=(f"current document SHA-256: {current}",),
                     recovery=f"Continue session {folder.name} instead (answer and regenerate it). Only a human may replace its document, "
-                             "by moving 001-USE-CASES.md aside first.",
+                             f"by moving {rel} aside first.",
                 )
 
     def approval_challenge(self, session_id: str) -> dict[str, Any]:
@@ -945,18 +959,19 @@ class IdeatorService:
             raise DridhError(ErrorCode.APPROVAL_REQUIRED, "The confirmation did not match. Nothing was changed.")
         if not reviewer.strip():
             raise IdeatorError("reviewer is required")
-        canonical = self.project_root / "001-USE-CASES.md"
+        rel = str(payload["generated"].get("path") or "001-USE-CASES.md")
+        canonical = self.project_root / rel
         if not canonical.is_file():
             raise DridhError(ErrorCode.VALIDATION_FAILED, "The canonical Use Case document is missing.")
         source_text = canonical.read_text(encoding="utf-8")
         if content_hash(source_text) != payload["generated"]["sha256"]:
             raise DridhError(ErrorCode.CONFIGURATION_CONFLICT, "The Use Case document changed after review; approval is refused.", recovery="Regenerate the review against the current document revision.")
-        validated_model(source_text, "001-USE-CASES.md")
+        validated_model(source_text, Path(rel).name)
         with StateStore(self.workspace.state_db, self.workspace.workspace_id) as store:
             with store.transaction() as connection:
                 documents = DocumentRepository(connection, self.workspace.workspace_id)
-                revision = documents.current_revision("001-USE-CASES.md")
-                metadata = documents.document_metadata("001-USE-CASES.md")
+                revision = documents.current_revision(rel)
+                metadata = documents.document_metadata(rel)
                 if revision is None or metadata is None or revision.id != challenge["revision_id"]:
                     raise DridhError(ErrorCode.CONFIGURATION_CONFLICT, "Approval revision is stale; no approval was recorded.")
                 validation = documents.latest_validation(revision.id, "ideator.use_cases")
@@ -967,7 +982,7 @@ class IdeatorService:
                 if marker is None or marker["source_revision_id"] != revision.id:
                     raise DridhError(ErrorCode.CONFIGURATION_CONFLICT, "The current revision has not been reconciled into SQLite; approval is refused.")
                 projection_findings = projection.projection_findings(
-                    relative_path="001-USE-CASES.md",
+                    relative_path=rel,
                     document_id=str(metadata["id"]),
                     current_revision_id=revision.id,
                     current_content=documents.stored_content(revision.id),
@@ -1011,13 +1026,14 @@ class IdeatorService:
                 return {"unlocked": False, "stage": "dridh/technical-designer", "reason": "This inquiry session has not received human approval."}
         else:
             session = None
-        canonical = self.project_root / "001-USE-CASES.md"
+        rel = str((session or {}).get("generated", {}).get("path") or "001-USE-CASES.md")
+        canonical = self.project_root / rel
         if not canonical.is_file():
-            return {"unlocked": False, "stage": "dridh/technical-designer", "reason": "001-USE-CASES.md does not exist."}
+            return {"unlocked": False, "stage": "dridh/technical-designer", "reason": f"{rel} does not exist."}
         with StateStore(self.workspace.state_db, self.workspace.workspace_id) as store:
             documents = DocumentRepository(store.connection, self.workspace.workspace_id)
-            metadata = documents.document_metadata("001-USE-CASES.md")
-            revision = documents.current_revision("001-USE-CASES.md")
+            metadata = documents.document_metadata(rel)
+            revision = documents.current_revision(rel)
             if metadata is None or revision is None:
                 return {"unlocked": False, "stage": "dridh/technical-designer", "reason": "The canonical Use Case document is not reconciled to SQLite."}
             if session is not None and (
@@ -1051,7 +1067,7 @@ class IdeatorService:
             if marker is None or marker["source_revision_id"] != revision.id:
                 return {"unlocked": False, "stage": "dridh/technical-designer", "reason": "The approved Use Case revision has not been projected into SQLite."}
             findings = UseCaseRepository(store.connection, self.workspace.workspace_id).projection_findings(
-                relative_path="001-USE-CASES.md",
+                relative_path=rel,
                 document_id=str(metadata["id"]),
                 current_revision_id=revision.id,
                 current_content=documents.stored_content(revision.id),
@@ -1061,6 +1077,7 @@ class IdeatorService:
             return {
                 "unlocked": True,
                 "stage": "dridh/technical-designer",
+                "document": rel,
                 "source_revision_id": revision.id,
                 "source_sha256": revision.content_sha256,
                 "approved_by": approval["reviewer"],

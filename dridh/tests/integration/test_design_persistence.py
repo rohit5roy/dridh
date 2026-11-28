@@ -289,7 +289,7 @@ def test_v4_workspace_upgrades_keeping_use_cases_and_ledger(workspace) -> None: 
     raw.execute("UPDATE meta SET value='4' WHERE key='schema_version'")
     raw.close()
     result = migrate_to_current(workspace.state_db)
-    assert [s["to_version"] for s in result["steps"]] == [5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+    assert [s["to_version"] for s in result["steps"]] == [5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
     assert schema_version(workspace.state_db) == CURRENT_SCHEMA_VERSION
     with open_store(workspace) as store:
         assert count(store, "use_case_flow") == 8
@@ -411,7 +411,7 @@ def test_v5_database_refuses_cdd_1_for_a_second_component_then_migrates_without_
 
     from dridh.state.migration import migrate_to_current
     result = migrate_to_current(workspace.state_db)
-    assert [s["to_version"] for s in result["steps"]] == [6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+    assert [s["to_version"] for s in result["steps"]] == [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
     step = result["steps"][0]
     assert step["rows_preserved"] == {"design_decision": 2, "use_case_component_mapping": 7}
     assert Path(step["backup_path"]).exists()

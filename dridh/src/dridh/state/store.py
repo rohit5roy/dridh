@@ -25,7 +25,7 @@ from typing import Any
 from dridh.common.errors import DridhError, ErrorCode
 from dridh.common.redaction import redact
 
-STATE_SCHEMA_VERSION = 15
+STATE_SCHEMA_VERSION = 16
 GENESIS_HASH = "0" * 64
 
 # Phase 5 increments 6-8: execution/Git, Code Reacher and Jev canonical records.
@@ -1016,8 +1016,8 @@ class StateStore:
                 connection.execute(statement)
             for statement in _EXECUTION_STATEMENTS:
                 connection.execute(statement)
-            from dridh.state.lifecycle import LIFECYCLE_STATEMENTS
-            for statement in LIFECYCLE_STATEMENTS:
+            from dridh.state.lifecycle import FEATURE_FOLDER_STATEMENTS, LIFECYCLE_STATEMENTS
+            for statement in (*LIFECYCLE_STATEMENTS, *FEATURE_FOLDER_STATEMENTS):
                 connection.execute(statement)
             from dridh.state.invocations import INVOCATION_STATEMENTS
             from dridh.state.ledger_entries import LEDGER_ENTRY_STATEMENTS

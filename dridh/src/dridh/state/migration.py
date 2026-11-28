@@ -47,7 +47,8 @@ RUNS_SCHEMA_VERSION = 12  # execution_run, execution_lot*, story_attempt
 STORY_STATUS_SCHEMA_VERSION = 13  # story status may change; definitions stay immutable
 INVOCATION_SCHEMA_VERSION = 14  # tool_invocation audit table
 LEDGER_SCHEMA_VERSION = 15  # ledger_entry + ledger_import
-CURRENT_SCHEMA_VERSION = LEDGER_SCHEMA_VERSION
+FEATURE_FOLDER_SCHEMA_VERSION = 16  # feature_folder: each new feature's documents folder
+CURRENT_SCHEMA_VERSION = FEATURE_FOLDER_SCHEMA_VERSION
 
 _V2_ADDITIONS = """
 CREATE TABLE IF NOT EXISTS task_dependencies (
@@ -174,7 +175,7 @@ def migrate_v1_to_v2(db_path: Path) -> dict[str, Any]:
     try:
         conn.execute("PRAGMA foreign_keys = ON")
         current = _current_schema_version(conn)
-        if current in (PHASE3_SCHEMA_VERSION, PHASE5_SCHEMA_VERSION, USECASE_SCHEMA_VERSION, DESIGN_SCHEMA_VERSION, CDD_SCOPE_SCHEMA_VERSION, PLANNING_SCHEMA_VERSION, REVIEW_SCHEMA_VERSION, PHASE5_EXECUTION_SCHEMA_VERSION, PHASE5_COMPLETE_SCHEMA_VERSION, LIFECYCLE_SCHEMA_VERSION, RUNS_SCHEMA_VERSION, STORY_STATUS_SCHEMA_VERSION, INVOCATION_SCHEMA_VERSION, LEDGER_SCHEMA_VERSION):
+        if current in (PHASE3_SCHEMA_VERSION, PHASE5_SCHEMA_VERSION, USECASE_SCHEMA_VERSION, DESIGN_SCHEMA_VERSION, CDD_SCOPE_SCHEMA_VERSION, PLANNING_SCHEMA_VERSION, REVIEW_SCHEMA_VERSION, PHASE5_EXECUTION_SCHEMA_VERSION, PHASE5_COMPLETE_SCHEMA_VERSION, LIFECYCLE_SCHEMA_VERSION, RUNS_SCHEMA_VERSION, STORY_STATUS_SCHEMA_VERSION, INVOCATION_SCHEMA_VERSION, LEDGER_SCHEMA_VERSION, FEATURE_FOLDER_SCHEMA_VERSION):
             return {"from_version": current, "to_version": current, "backup_path": None, "migrated": False}
         if current != PHASE2_SCHEMA_VERSION:
             raise DridhError(
@@ -440,6 +441,10 @@ def migrate_to_current(db_path: Path) -> dict[str, Any]:
     if version == INVOCATION_SCHEMA_VERSION:
         from dridh.state.ledger_entries import LEDGER_ENTRY_STATEMENTS
         steps.append(_apply_statements(db_path, expected=14, target=15, statements=LEDGER_ENTRY_STATEMENTS, label="v14-ledger-entries"))
+        version = schema_version(db_path)
+    if version == LEDGER_SCHEMA_VERSION:
+        from dridh.state.lifecycle import FEATURE_FOLDER_STATEMENTS
+        steps.append(_apply_statements(db_path, expected=15, target=16, statements=FEATURE_FOLDER_STATEMENTS, label="v15-feature-folders"))
     return {
         "to_version": CURRENT_SCHEMA_VERSION,
         "steps": steps,

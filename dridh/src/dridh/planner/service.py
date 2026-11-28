@@ -50,6 +50,7 @@ from dridh.state.planning import (
 from dridh.state.reviews import ReviewRepository
 from dridh.state.store import StateStore, canonical_json
 from dridh.state.usecases import UseCaseRepository
+from dridh.workspace.documents_layout import LEGACY, DocumentLayout, session_layout
 from dridh.workspace.layout import WorkspaceInfo
 
 SESSION_SCHEMA = "dridh.planning"
@@ -358,15 +359,16 @@ class PlannerService:
         if content_hash(tdd_text) != gate["tdd_sha256"]:
             raise DridhError(ErrorCode.CONFIGURATION_CONFLICT, "The approved TDD changed before Planner preflight.")
         tdd = validated_tdd_model(tdd_text, tdd_path.name)
-        use_case_path = self.project_root / "001-USE-CASES.md"
+        use_case_rel = str(gate.get("use_case_path") or "001-USE-CASES.md")
+        use_case_path = self.project_root / use_case_rel
         if not use_case_path.is_file() or use_case_path.is_symlink():
-            raise DridhError(ErrorCode.DEPENDENCY_NOT_READY, "The approved canonical 001-USE-CASES.md file is missing.")
+            raise DridhError(ErrorCode.DEPENDENCY_NOT_READY, f"The approved Use Case document {use_case_rel} is missing.")
         use_case_text = use_case_path.read_text(encoding="utf-8")
         use_case_sha256 = content_hash(use_case_text)
         with StateStore(self.workspace.state_db, self.workspace.workspace_id) as store:
             documents = DocumentRepository(store.connection, self.workspace.workspace_id)
-            use_meta = documents.document_metadata("001-USE-CASES.md")
-            use_revision = documents.current_revision("001-USE-CASES.md")
+            use_meta = documents.document_metadata(use_case_rel)
+            use_revision = documents.current_revision(use_case_rel)
             tdd_meta = documents.document_metadata(gate["tdd_path"])
             tdd_revision = documents.current_revision(gate["tdd_path"])
             if use_meta is None or use_revision is None or use_revision.id != gate["source_use_case_revision_id"] or use_revision.content_sha256 != use_case_sha256:
@@ -375,7 +377,7 @@ class PlannerService:
                 raise DridhError(ErrorCode.DEPENDENCY_NOT_READY, "The approved TDD revision is not current in SQLite.")
             use_repo = UseCaseRepository(store.connection, self.workspace.workspace_id)
             use_findings = use_repo.projection_findings(
-                relative_path="001-USE-CASES.md",
+                relative_path=use_case_rel,
                 document_id=str(use_meta["id"]),
                 current_revision_id=use_revision.id,
                 current_content=documents.stored_content(use_revision.id),
@@ -995,9 +997,20 @@ class PlannerService:
             "",
         ])
 
+    def _layout(self, payload: dict[str, Any]) -> DocumentLayout:
+        """The folder this plan's documents go in: the feature's, found through the Planner, Designer or Ideator session."""
+        ideator = None
+        try:
+            ideator = DesignerService(self.workspace)._load(payload["designer_session_id"]).get("ideator_session_id")
+        except (DridhError, KeyError, OSError, ValueError):
+            pass
+        with StateStore(self.workspace.state_db, self.workspace.workspace_id) as store:
+            return session_layout(store.connection, self.workspace.workspace_id, planner=payload.get("session_id"),
+                                  designer=payload.get("designer_session_id"), ideator=ideator)
+
     def _render_component(self, component: dict[str, Any], tdd_path: str, stories: list[dict[str, Any]],
                           story_ids: dict[str, str], depths: dict[str, int], by_key: dict[str, dict[str, Any]],
-                          statuses: dict[str, str] | None = None) -> str:
+                          statuses: dict[str, str] | None = None, layout: DocumentLayout = LEGACY) -> str:
         statuses = statuses or {}
         selected = [item for item in stories if item["component_id"] == component["component_id"]]
         rows = [[story_ids[item["key"]], depths[item["key"]], item["title"], ", ".join(item["use_case_ids"]) or "Ops", statuses.get(item["key"], "NOT_STARTED")] for item in selected]
@@ -1010,7 +1023,7 @@ class PlannerService:
         totals = [sum(row[1] for row in dashboard), *[sum(row[index] for row in dashboard) for index in range(2, 7)]]
         dashboard.append(["**Total**", *totals])
         anchor = f"#{component['component_id'].lower()}-{_slug(component['name'])}"
-        master_dir = self.project_root / ".opencode" / "dridh" / "documents" / "components" / component["component_id"]
+        master_dir = self.project_root / layout.component_dir(component["component_id"])
         relative_tdd = Path(os.path.relpath(self.project_root / tdd_path, master_dir)).as_posix()
         return "\n".join([
             f"# {component['name']} — Component Master",
@@ -1050,7 +1063,7 @@ class PlannerService:
             "",
             "## Phase Files",
             "",
-            *[f"- PHASE-{phase}-{_slug(component['name'])}.md" for phase in phases],
+            *[f"- {layout.phase_name(position, phase, component['name'])}" for position, phase in enumerate(phases)],
             "",
         ])
 
@@ -1196,7 +1209,7 @@ class PlannerService:
             "",
             *[f"- [ ] {item}" for item in REVIEW_CHECKLIST],
             "",
-            "Review the Central Plan Index, all component masters and phase files, TEST-PLAN.md and the project structure recommendations. This checklist is a handoff aid, not an approval.",
+            "Review the Central Plan Index, all component masters and phase files, the test plan and the project structure recommendations. This checklist is a handoff aid, not an approval.",
             "",
         ])
 
@@ -1459,6 +1472,7 @@ class PlannerService:
         order_keys, depths = _topological(stories)
         for item in stories:
             item["phase"] = depths[item["key"]]
+        layout = self._layout(payload)
         identifiers = payload.get("identifiers")
         expected_story_keys = {item["key"] for item in stories}
         expected_test_keys = {item["key"] for item in payload["testing"]["phases"]}
@@ -1476,11 +1490,11 @@ class PlannerService:
                 with store.transaction() as connection:
                     allocator = CoordinatorIdAllocator(connection)
                     for key in order_keys:
-                        story_ids[key] = allocator.allocate("story", phase=depths[key], source_document=".opencode/dridh/documents/CENTRAL-PLAN-INDEX.md")
+                        story_ids[key] = allocator.allocate("story", phase=depths[key], source_document=layout.central_plan())
                     for item in payload["testing"]["phases"]:
                         mode = item["dependency_mode"]
                         prefix = "D" if mode == "DOCKER_COMPOSE" else ("X" if mode in {"REAL_QA_ENDPOINT", "WIREMOCK_EXCEPTION"} else "S")
-                        test_ids[item["key"]] = allocator.allocate("test_phase", prefix=prefix, source_document=".opencode/dridh/documents/TEST-PLAN.md")
+                        test_ids[item["key"]] = allocator.allocate("test_phase", prefix=prefix, source_document=layout.test_plan())
             payload["identifiers"] = {"story_ids": story_ids, "test_phase_ids": test_ids}
             self._save(payload)
         unlock_keys: dict[str, list[str]] = {key: [] for key in order_keys}
@@ -1490,9 +1504,8 @@ class PlannerService:
         partners = self._parallel(stories, story_ids)
         components_by_id = {item["component_id"]: {**item, "name": next(c.component_name for c in tdd.components if c.component_id == item["component_id"])} for item in payload["components"]["components"]}
         tdd_by_id = {item.component_id: item for item in tdd.components}
-        base_dir = ".opencode/dridh/documents"
-        central_path = f"{base_dir}/CENTRAL-PLAN-INDEX.md"
-        test_path = f"{base_dir}/TEST-PLAN.md"
+        central_path = layout.central_plan()
+        test_path = layout.test_plan()
         central_text = self._render_central({**payload, "baseline": self._baseline(source, tdd, use_cases, code_index)}, stories, story_ids, depths, partners)
         docs: list[dict[str, Any]] = [{
             "path": central_path, "content": central_text, "kind": "central_plan", "document_type": "central_plan",
@@ -1500,22 +1513,23 @@ class PlannerService:
         }]
         for cid in sorted(components_by_id):
             component = components_by_id[cid]
-            master_path = f"{base_dir}/components/{cid}/COMPONENT-MASTER.md"
-            master_text = self._render_component(component, source["tdd_path"], stories, story_ids, depths, {item["key"]: item for item in stories})
+            master_path = layout.component_master(cid)
+            master_text = self._render_component(component, source["tdd_path"], stories, story_ids, depths, {item["key"]: item for item in stories},
+                                                 layout=layout)
             docs.append({"path": master_path, "content": master_text, "kind": "component_master", "document_type": "component_master",
                          "validator": "planner.component-master", "validation": validate_component_master(master_text, master_path)})
-            for phase in sorted({depths[item["key"]] for item in stories if item["component_id"] == cid}):
-                phase_path = f"{base_dir}/components/{cid}/PHASE-{phase}-{_slug(tdd_by_id[cid].component_name)}.md"
+            for position, phase in enumerate(sorted({depths[item["key"]] for item in stories if item["component_id"] == cid})):
+                phase_path = layout.phase_file(cid, position, phase, tdd_by_id[cid].component_name)
                 phase_text = self._render_phase(component, phase, stories, story_ids, unlock_keys)
                 docs.append({"path": phase_path, "content": phase_text, "kind": "phase_file", "document_type": "phase_file",
                              "validator": "planner.phase", "validation": validate_phase_file(phase_text, phase_path)})
         test_text = self._render_test_plan(payload, payload["testing"]["phases"], test_ids)
         docs.append({"path": test_path, "content": test_text, "kind": "test_plan", "document_type": "test_plan",
                      "validator": "planner.test-plan", "validation": validate_test_plan(test_text, test_path)})
-        structure_path = f"{base_dir}/PROJECT-STRUCTURE-PLAN.md"
+        structure_path = layout.project_structure()
         structure_text = self._render_structure({**payload, "indexer": indexer})
         docs.append({"path": structure_path, "content": structure_text, "kind": "artifact", "document_type": "planning_artifact"})
-        checklist_path = f"{base_dir}/PLANNING-REVIEW-CHECKLIST.md"
+        checklist_path = layout.planning_checklist()
         checklist_text = self._render_checklist(payload)
         docs.append({"path": checklist_path, "content": checklist_text, "kind": "artifact", "document_type": "planning_artifact"})
         try:
@@ -1644,7 +1658,7 @@ class PlannerService:
                             for item in payload["components"]["components"]}
         tdd_by_id = {item.component_id: item for item in tdd.components}
         baseline = self._baseline(source, tdd, use_cases, code_index)
-        base_dir = ".opencode/dridh/documents"
+        layout = self._layout(payload)
         central_path = generated["central_plan"]
         test_path = generated["test_plan"]
         central_text = self._render_central({**payload, "baseline": baseline}, stories, story_ids, depths, partners, story_statuses)
@@ -1654,20 +1668,20 @@ class PlannerService:
         }]
         for cid in sorted(components_by_id):
             component = components_by_id[cid]
-            master_path = f"{base_dir}/components/{cid}/COMPONENT-MASTER.md"
+            master_path = layout.component_master(cid)
             master_text = self._render_component(component, source["tdd_path"], stories, story_ids, depths,
-                                                 {item["key"]: item for item in stories}, story_statuses)
+                                                 {item["key"]: item for item in stories}, story_statuses, layout=layout)
             docs_to_write.append({"path": master_path, "content": master_text, "kind": "component_master", "document_type": "component_master",
                                   "validator": "planner.component-master", "validation": validate_component_master(master_text, master_path)})
-            for phase in sorted({depths[item["key"]] for item in stories if item["component_id"] == cid}):
-                phase_path = f"{base_dir}/components/{cid}/PHASE-{phase}-{_slug(tdd_by_id[cid].component_name)}.md"
+            for position, phase in enumerate(sorted({depths[item["key"]] for item in stories if item["component_id"] == cid})):
+                phase_path = layout.phase_file(cid, position, phase, tdd_by_id[cid].component_name)
                 phase_text = self._render_phase(component, phase, stories, story_ids, unlock_keys, story_statuses)
                 docs_to_write.append({"path": phase_path, "content": phase_text, "kind": "phase_file", "document_type": "phase_file",
                                       "validator": "planner.phase", "validation": validate_phase_file(phase_text, phase_path)})
         test_text = self._render_test_plan(payload, payload["testing"]["phases"], test_ids, test_statuses)
         docs_to_write.append({"path": test_path, "content": test_text, "kind": "test_plan", "document_type": "test_plan",
                               "validator": "planner.test-plan", "validation": validate_test_plan(test_text, test_path)})
-        structure_path = f"{base_dir}/PROJECT-STRUCTURE-PLAN.md"
+        structure_path = layout.project_structure()
         structure_text = self._render_structure({**payload, "indexer": payload["indexer"]})
         docs_to_write.append({"path": structure_path, "content": structure_text, "kind": "artifact", "document_type": "planning_artifact"})
         checklist_path = generated["review_checklist"]

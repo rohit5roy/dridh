@@ -22,6 +22,7 @@ from typing import Any
 from dridh.common.errors import DridhError, ErrorCode
 from dridh.state.reviews import _audit
 from dridh.state.store import utc_now
+from dridh.workspace.documents_layout import feature_folder, feature_layout
 
 STAGES = (
     "INITIALISED",
@@ -92,6 +93,20 @@ BEGIN SELECT RAISE(ABORT,'transitions are append-only'); END""",
 BEGIN SELECT RAISE(ABORT,'transitions are append-only'); END""",
 )
 
+# Schema 16: each feature created from now on has its own documents folder (docs/dridh/NNN-SLUG). A feature without a row
+# keeps the legacy document names it was created with.
+FEATURE_FOLDER_STATEMENTS: tuple[str, ...] = (
+    """CREATE TABLE IF NOT EXISTS feature_folder (
+  feature_id TEXT PRIMARY KEY REFERENCES feature(id) ON DELETE RESTRICT,
+  workspace_id TEXT NOT NULL,
+  serial INTEGER NOT NULL CHECK(serial BETWEEN 1 AND 999),
+  folder TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  UNIQUE(workspace_id, serial),
+  UNIQUE(workspace_id, folder)
+)""",
+)
+
 
 class LifecycleRepository:
     """Reads and writes lifecycle rows. Writes must run inside a transaction opened by the caller."""
@@ -117,11 +132,16 @@ class LifecycleRepository:
                 f"Unknown feature '{reference}'.",
                 recovery="List features with `dridh feature list`, or create one with `dridh feature create`.",
             )
-        return dict(row)
+        return self._with_folder(dict(row))
 
     def list(self) -> list[dict[str, Any]]:
         rows = self.connection.execute("SELECT * FROM feature WHERE workspace_id=? ORDER BY created_at, slug", (self.workspace_id,))
-        return [dict(row) for row in rows]
+        return [self._with_folder(dict(row)) for row in rows]
+
+    def _with_folder(self, feature: dict[str, Any]) -> dict[str, Any]:
+        """Adds ``documents_folder``: the feature's folder, or None for a feature with the legacy document names."""
+        feature["documents_folder"] = feature_layout(self.connection, self.workspace_id, feature["id"]).folder
+        return feature
 
     def transitions(self, feature_id: str) -> list[dict[str, Any]]:
         rows = self.connection.execute(
@@ -157,6 +177,14 @@ class LifecycleRepository:
         self.connection.execute(
             "INSERT INTO feature(id,workspace_id,slug,name,mode,stage,created_at,updated_at) VALUES(?,?,?,?,?,'INITIALISED',?,?)",
             (feature_id, self.workspace_id, slug, name, mode, now, now),
+        )
+        serial = int(self.connection.execute(
+            "SELECT COALESCE(MAX(serial), 0) + 1 FROM feature_folder WHERE workspace_id=?", (self.workspace_id,)).fetchone()[0])
+        if serial > 999:
+            raise DridhError(ErrorCode.CONFIGURATION_CONFLICT, "This workspace has 999 features; no folder number is left.")
+        self.connection.execute(
+            "INSERT INTO feature_folder(feature_id,workspace_id,serial,folder,created_at) VALUES(?,?,?,?,?)",
+            (feature_id, self.workspace_id, serial, feature_folder(serial, slug), now),
         )
         self._append(feature_id, "CREATE", "INITIALISED", "INITIALISED", "Feature created.", {"mode": mode}, actor, None)
         _audit(self.connection, self.workspace_id, actor, "feature.create", "feature", feature_id, {"slug": slug, "mode": mode})

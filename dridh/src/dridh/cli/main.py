@@ -1810,7 +1810,7 @@ def _ledger_decide(ledger_id: str, decision: str, reviewer: str, reason: str, le
 
 
 _REVIEWER_HELP = "Human reviewer name. This is attribution metadata, not authentication."
-_LEDGER_FILE_HELP = "Path to LEDGER.md (default: the workspace's .opencode/dridh/documents/LEDGER.md)."
+_LEDGER_FILE_HELP = "Path to the ledger (default: the current feature's 007-LEDGER.md, or .opencode/dridh/documents/LEDGER.md for an older feature)."
 
 
 @ledger_app.command("approve")
@@ -2141,7 +2141,7 @@ def _designer(project: str) -> DesignerService:
 @designer_app.command("start")
 def designer_start(
     ideator_session_id: str,
-    feature: str = typer.Option(..., "--feature", help="Feature slug/name used for <feature>_tdd.md."),
+    feature: str = typer.Option(..., "--feature", help="Feature name; the design is written to the feature's 002-TECHNICAL-DESIGN.md."),
     project: str = PROJECT_OPTION,
     existing_context: str = typer.Option("", "--existing-context"),
     code_reacher_evidence: str = typer.Option("", "--code-reacher-evidence", help="Verified Code Reacher findings; do not substitute assumptions."),

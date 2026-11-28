@@ -1158,7 +1158,10 @@ def validate_document_sync(content: str, expected_revision: str, file: str | Non
 
 
 def classify_document(name: str, content: str = "") -> str | None:
-    lower = Path(name).name.lower()
+    # Feature folders number their files (``004-TEST-PLAN.md``); the serial does not change what a document is.
+    lower = re.sub(r"^\d{3}-", "", Path(name).name.lower())
+    if lower == "technical-design.md":
+        return "tdd"
     if lower == "ledger.md":
         return "ledger"
     if lower == "test-plan.md":

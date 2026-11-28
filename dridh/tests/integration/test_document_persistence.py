@@ -111,7 +111,7 @@ def test_v1_to_v3_chain_upgrades_in_order(workspace) -> None:  # type: ignore[no
     raw.execute("UPDATE meta SET value='1' WHERE key='schema_version'")
     raw.close()
     result = migrate_to_current(info.state_db)
-    assert [step["to_version"] for step in result["steps"]] == [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+    assert [step["to_version"] for step in result["steps"]] == [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
     assert schema_version(info.state_db) == CURRENT_SCHEMA_VERSION
 
 

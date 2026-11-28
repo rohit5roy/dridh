@@ -171,5 +171,5 @@ def test_migrate_upgrades_a_v6_workspace_through_the_cli(tmp_path: Path) -> None
     assert blocked.returncode == 3
     migrated = run("migrate", "--project", str(project), cwd=project)
     assert migrated.returncode == 0, migrated.stderr
-    assert json.loads(migrated.stdout)["steps"][-1]["to_version"] == 15
+    assert json.loads(migrated.stdout)["steps"][-1]["to_version"] == 16
     assert run("usecases", "show", FILES["uc"], "--project", str(project), cwd=project).returncode == 0
