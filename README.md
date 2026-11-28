@@ -101,6 +101,15 @@ The plugin adds Dridh to OpenCode's terminal interface without modifying OpenCod
 
 ![The document reviewer in OpenCode's session panel, rendered by glow](docs/images/opencode-panel-reviewer.png)
 
+**In the OpenCode desktop app** (2.4 or later), the same plugin adds a *Dridh* tab to each session's side panel: the
+feature's stages and documents, a reading view with an outline and real Mermaid diagrams, the review checklist, and
+*Approve* and *Request changes*. Approving still needs the typed confirmation, typed by you in a dialog. The panel
+follows the app's light and dark themes. OpenCode's browser version does not load plugin screens yet.
+
+![Dridh in the OpenCode desktop app: the feature overview beside the conversation](docs/images/desktop-overview.png)
+
+![Approving the technical design: Dridh shows what is approved and the phrase you type](docs/images/desktop-approve.png)
+
 ![The Coverage view: every approved flow with its story, state and proof, and the selected flow's ledger entry opened with g](docs/images/opencode-coverage-ledger.png)
 
 ![The Metrics view: stories and runs, and the Models by agent table showing which model each agent uses and why](docs/images/opencode-metrics-models.png)

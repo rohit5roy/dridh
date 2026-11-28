@@ -44,6 +44,12 @@ def main() -> None:
         (target_plugin / "tui").mkdir(parents=True)
         for source in tui_files:
             shutil.copy2(source, target_plugin / "tui" / source.name)
+    # The desktop app part: one CommonJS bundle built by `npm run build` (gui/), loaded by the OpenCode desktop app.
+    gui_bundle = PLUGIN_SOURCE / "gui" / "dist" / "gui-experimental.cjs"
+    if not gui_bundle.is_file():
+        fail("the desktop bundle is missing; run `npm run build` in opencode/plugins/dridh-bridge first")
+    (target_plugin / "gui").mkdir(parents=True)
+    shutil.copy2(gui_bundle, target_plugin / "gui" / gui_bundle.name)
     source_manifest = json.loads((PLUGIN_SOURCE / "package.json").read_text())
     sdk_version = (source_manifest.get("dependencies") or {}).get("@opencode/plugin")
     if not sdk_version:
@@ -57,7 +63,11 @@ def main() -> None:
         "version": dridh_version,  # the packaged plugin carries the Dridh version (single source: src/dridh/__init__.py)
         "private": True,
         "type": "module",
-        "exports": {".": "./dist/index.js", **({"./tui": "./tui/index.tsx"} if (PLUGIN_SOURCE / "tui" / "index.tsx").is_file() else {})},
+        "exports": {
+            ".": "./dist/index.js",
+            **({"./tui": "./tui/index.tsx"} if (PLUGIN_SOURCE / "tui" / "index.tsx").is_file() else {}),
+            "./gui-experimental": "./gui/gui-experimental.cjs",
+        },
         # Provenance recorded in the install manifest; not used by OpenCode.
         "opencodePluginSdk": sdk_version,
     }

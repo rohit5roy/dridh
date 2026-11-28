@@ -72,6 +72,19 @@ def test_fresh_install_creates_managed_layout(tmp_path: Path, sources) -> None:
     assert current["default_agent"] is None
 
 
+def test_terminal_and_desktop_parts_are_installed_with_the_plugin(tmp_path: Path, sources) -> None:
+    plugin = sources[0]
+    (plugin / "tui").mkdir()
+    (plugin / "tui" / "index.tsx").write_text("export default {}\n")
+    (plugin / "gui").mkdir()
+    (plugin / "gui" / "gui-experimental.cjs").write_text("module.exports = {}\n")
+    config = tmp_path / "cfg"
+    apply_install(install(config, sources)[1])
+    installed = config / "dridh" / "plugin" / "dridh-bridge"
+    assert (installed / "tui" / "index.tsx").is_file()
+    assert (installed / "gui" / "gui-experimental.cjs").read_text() == "module.exports = {}\n"
+
+
 def test_nested_worker_profiles_are_installed_and_idempotent(tmp_path: Path, sources) -> None:
     plugin, agents = sources
     workers = agents / "workers"

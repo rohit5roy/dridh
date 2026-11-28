@@ -184,7 +184,8 @@ def _plugin_files(source: Path) -> dict[str, bytes]:
             recovery="Build the plugin with npm run build, or reinstall the Dridh wheel that contains it.",
         )
     files = {"package.json": package.read_bytes()}
-    for folder in (dist, source / "tui"):  # tui/: the OpenCode terminal UI part, compiled by OpenCode at load time
+    # tui/: the terminal UI part, compiled by OpenCode at load time; gui/: the desktop app part, one prebuilt bundle.
+    for folder in (dist, source / "tui", source / "gui"):
         for path in sorted(folder.rglob("*")) if folder.is_dir() else ():
             if path.is_file():
                 files[path.relative_to(source).as_posix()] = path.read_bytes()

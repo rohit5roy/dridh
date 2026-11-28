@@ -1,0 +1,153 @@
+/* Dridh in the OpenCode desktop app. Colours, fonts and surfaces come from the app's theme variables (--v2-*), so the
+   panel follows light and dark mode. Four text sizes: title 17px, section 13px semibold, body 13px, small 12px.
+   Amber (the app's warning colour) marks only what waits for the person. */
+
+.dridh, .dridh-dialog {
+  --dridh-text: var(--v2-text-text-base);
+  --dridh-muted: var(--v2-text-text-muted);
+  --dridh-faint: var(--v2-text-text-faint);
+  --dridh-line: var(--v2-border-border-base);
+  --dridh-line-soft: var(--v2-border-border-muted);
+  --dridh-surface: var(--v2-background-bg-base);
+  --dridh-raised: var(--v2-background-bg-layer-01);
+  --dridh-sunken: var(--v2-background-bg-layer-02);
+  --dridh-attention: var(--v2-state-fg-warning);
+  --dridh-success: var(--v2-state-fg-success);
+  --dridh-danger: var(--v2-state-fg-danger);
+  --dridh-focus: var(--v2-border-border-focus);
+}
+.dridh {
+  container-type: inline-size;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  color: var(--dridh-text);
+  background: var(--dridh-surface);
+  font-family: var(--v2-font-family-sans);
+  font-size: 13px;
+  line-height: 1.55;
+}
+.dridh * { box-sizing: border-box; }
+.dridh code, .dridh-mono { font-family: var(--v2-font-family-code); font-size: 12px; }
+.dridh-pad { padding: 20px; overflow-y: auto; }
+.dridh-stack { display: flex; flex-direction: column; gap: 20px; }
+.dridh-stack--tight { gap: 8px; }
+.dridh-muted { color: var(--dridh-muted); margin: 0; }
+.dridh-small { font-size: 12px; }
+.dridh-eyebrow { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--dridh-muted); }
+.dridh-title { font-size: 17px; font-weight: 600; line-height: 1.3; margin: 2px 0 2px; }
+.dridh-h2 { font-size: 13px; font-weight: 600; margin: 0; }
+.dridh-center { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; color: var(--dridh-muted); padding: 40px; }
+.dridh-empty { padding: 32px 20px; display: flex; flex-direction: column; gap: 6px; max-width: 460px; }
+
+/* Stage track: one segment per stage; done, now, to do. */
+.dridh-track { list-style: none; display: flex; gap: 3px; margin: 0; padding: 0; }
+.dridh-track__step { flex: 1; height: 6px; border-radius: 3px; background: var(--dridh-line); }
+.dridh-track__step--done { background: var(--dridh-success); }
+.dridh-track__step--current { background: var(--dridh-attention); box-shadow: 0 0 0 2px color-mix(in srgb, var(--dridh-attention) 25%, transparent); }
+
+/* Next step. "Your turn" gets the amber edge. */
+.dridh-next { border: 1px solid var(--dridh-line); border-radius: 10px; padding: 14px 16px; background: var(--dridh-raised); display: flex; flex-direction: column; gap: 8px; }
+.dridh-next p { margin: 0; }
+.dridh-next--you { border-left: 3px solid var(--dridh-attention); }
+.dridh-next--you .dridh-eyebrow { color: var(--dridh-attention); }
+
+/* Status pills: colour plus an icon, never colour alone. */
+.dridh-pill { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; font-size: 12px; font-weight: 500; padding: 2px 8px 2px 6px; border-radius: 999px; border: 1px solid currentColor; }
+.dridh-pill--success { color: var(--dridh-success); }
+.dridh-pill--attention { color: var(--dridh-attention); }
+.dridh-pill--danger { color: var(--dridh-danger); }
+.dridh-pill--neutral { color: var(--dridh-muted); }
+
+/* Document cards on the overview. */
+.dridh-doc-card { all: unset; box-sizing: border-box; display: flex; align-items: center; gap: 12px; width: 100%; padding: 12px 14px; border: 1px solid var(--dridh-line); border-radius: 10px; background: var(--dridh-surface); cursor: pointer; }
+.dridh-doc-card:hover { background: var(--v2-overlay-simple-overlay-hover); }
+.dridh-doc-card:focus-visible { outline: 2px solid var(--dridh-focus); outline-offset: 2px; }
+.dridh-doc-card__icon { color: var(--dridh-muted); display: flex; }
+.dridh-doc-card__body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.dridh-doc-card__title { font-weight: 600; }
+
+.dridh-meter { display: flex; align-items: center; gap: 8px; }
+.dridh-meter__bar { flex: 0 0 120px; height: 4px; border-radius: 2px; background: var(--dridh-line); overflow: hidden; }
+.dridh-meter__bar > span { display: block; height: 100%; background: var(--dridh-success); }
+.dridh-meter__text { font-size: 12px; color: var(--dridh-muted); white-space: nowrap; }
+
+/* Document view. */
+.dridh-doc { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.dridh-doc__bar { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--dridh-line); }
+.dridh-doc__heading { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.dridh-doc__heading > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dridh-doc__title { font-size: 15px; font-weight: 600; }
+.dridh-doc__scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 16px 20px 24px; display: flex; flex-direction: column; gap: 16px; }
+.dridh-doc__meta { display: flex; flex-wrap: wrap; gap: 6px; }
+.dridh-chip { font-size: 12px; color: var(--dridh-muted); background: var(--dridh-sunken); border-radius: 6px; padding: 2px 8px; }
+.dridh-chip--success { color: var(--dridh-success); }
+.dridh-chip--danger { color: var(--dridh-danger); }
+.dridh-doc__grid { display: grid; grid-template-columns: 1fr; gap: 16px; }
+
+/* Outline: a toggle above the text when narrow, a sticky column when the panel is wide. */
+.dridh-toc { border: 1px solid var(--dridh-line); border-radius: 8px; }
+.dridh-toc__toggle { all: unset; box-sizing: border-box; width: 100%; display: flex; align-items: center; gap: 6px; padding: 8px 12px; cursor: pointer; font-weight: 500; }
+.dridh-toc__toggle:focus-visible { outline: 2px solid var(--dridh-focus); }
+.dridh-toc__list { display: none; list-style: none; margin: 0; padding: 0 6px 8px; max-height: 320px; overflow-y: auto; }
+.dridh-toc--open .dridh-toc__list { display: block; }
+.dridh-toc__item button { all: unset; box-sizing: border-box; display: block; width: 100%; padding: 3px 8px; border-radius: 5px; color: var(--dridh-muted); cursor: pointer; font-size: 12px; line-height: 1.4; }
+.dridh-toc__item button:hover { color: var(--dridh-text); background: var(--v2-overlay-simple-overlay-hover); }
+.dridh-toc__item button:focus-visible { outline: 2px solid var(--dridh-focus); }
+.dridh-toc__item--l3 button { padding-left: 20px; }
+@container (min-width: 760px) {
+  .dridh-doc__grid { grid-template-columns: 200px minmax(0, 1fr); align-items: start; }
+  .dridh-toc { position: sticky; top: 0; border: 0; }
+  .dridh-toc__toggle { pointer-events: none; padding: 0 8px 6px; font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--dridh-muted); }
+  .dridh-toc__toggle svg, .dridh-toc__toggle .dridh-muted { display: none; }
+  .dridh-toc__list { display: block; max-height: none; padding: 0; }
+}
+
+/* The document text: comfortable line length and spacing. Diagrams are drawn by the app's Markdown renderer. */
+.dridh-prose { min-width: 0; max-width: 72ch; font-size: 13.5px; line-height: 1.65; }
+.dridh-prose h1 { font-size: 20px; line-height: 1.3; margin: 0 0 12px; }
+.dridh-prose h2 { font-size: 16px; margin: 28px 0 8px; padding-top: 4px; border-top: 1px solid var(--dridh-line-soft); }
+.dridh-prose h3 { font-size: 14px; margin: 20px 0 6px; }
+.dridh-prose table { font-size: 12.5px; }
+.dridh-prose svg[aria-roledescription] { cursor: zoom-in; }
+.dridh-wide { width: 100%; }
+.dridh-diagram { min-height: 100%; display: flex; align-items: center; justify-content: center; padding: 8px; background: var(--v2-background-bg-base); border-radius: 8px; }
+.dridh-prose h2, .dridh-prose h3 { scroll-margin-top: 12px; }
+
+/* Cards, callouts, checklist. */
+.dridh-card { border: 1px solid var(--dridh-line); border-radius: 10px; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; background: var(--dridh-raised); }
+.dridh-card__head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.dridh-callout { border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column; gap: 2px; border: 1px solid; }
+.dridh-callout ul { margin: 4px 0 0; padding-left: 18px; }
+.dridh-callout--danger { color: var(--dridh-danger); border-color: color-mix(in srgb, var(--dridh-danger) 40%, transparent); background: color-mix(in srgb, var(--dridh-danger) 6%, transparent); }
+.dridh-callout--attention { border-color: color-mix(in srgb, var(--dridh-attention) 45%, transparent); background: color-mix(in srgb, var(--dridh-attention) 7%, transparent); }
+.dridh-callout--success { border-color: color-mix(in srgb, var(--dridh-success) 40%, transparent); background: color-mix(in srgb, var(--dridh-success) 7%, transparent); }
+.dridh-callout--danger span, .dridh-callout--attention span, .dridh-callout--success span { color: var(--dridh-text); }
+.dridh-checklist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.dridh-check { display: flex; align-items: flex-start; gap: 10px; padding: 6px 8px; border-radius: 6px; cursor: pointer; }
+.dridh-check:hover { background: var(--v2-overlay-simple-overlay-hover); }
+.dridh-check input { margin-top: 3px; width: 15px; height: 15px; accent-color: var(--dridh-success); flex-shrink: 0; cursor: pointer; }
+.dridh-check input:disabled { cursor: default; }
+.dridh-check > span { flex: 1; }
+.dridh-check--on > span { color: var(--dridh-muted); }
+
+/* Action bar: always visible under the document while it waits for review. */
+.dridh-actions { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-top: 1px solid var(--dridh-line); background: var(--dridh-surface); }
+.dridh-actions__hint { all: unset; flex: 1; display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--dridh-muted); cursor: pointer; }
+.dridh-actions__hint:hover { color: var(--dridh-text); text-decoration: underline; }
+.dridh-actions__hint:focus-visible { outline: 2px solid var(--dridh-focus); outline-offset: 2px; border-radius: 4px; }
+
+/* Dialogs. */
+.dridh-dialog { display: flex; flex-direction: column; gap: 14px; font-family: var(--v2-font-family-sans); font-size: 13px; line-height: 1.55; color: var(--v2-text-text-base); }
+.dridh-facts { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; margin: 0; }
+.dridh-facts dt { color: var(--v2-text-text-muted); }
+.dridh-facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.dridh-field { display: flex; flex-direction: column; gap: 6px; }
+.dridh-field__label { font-weight: 600; }
+.dridh-field__hint { font-size: 12px; color: var(--v2-text-text-muted); }
+.dridh-field__hint--ok { color: var(--v2-state-fg-success); }
+.dridh-phrase { display: block; font-family: var(--v2-font-family-code); font-size: 13px; padding: 8px 10px; border-radius: 6px; background: var(--v2-background-bg-layer-02); color: var(--v2-state-fg-warning); user-select: text; overflow-wrap: anywhere; }
+.dridh-summary { margin: 0; max-height: 160px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--v2-font-family-code); font-size: 12px; padding: 10px 12px; border-radius: 6px; background: var(--v2-background-bg-layer-02); color: var(--v2-text-text-muted); }
+.dridh-textarea { width: 100%; resize: vertical; min-height: 120px; font: inherit; color: inherit; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--v2-border-border-base); background: var(--v2-background-bg-base); }
+.dridh-textarea:focus { outline: none; border-color: var(--v2-border-border-focus); }
