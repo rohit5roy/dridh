@@ -96,7 +96,7 @@ Exit code `0` is not success by itself. `ok: false` with exit `0` is mapped to `
 - **Folder changes.** The TUI reads OpenCode's current folder on every refresh, so after `/cd` the status line, `/dridh` and every command act on the new folder; what was shown for the previous one is cleared.
 - **Indexing.** Choosing *Existing codebase* starts `dridh index --progress` in the background, beside OpenCode. Its progress (JSON lines on stderr) shows in the status line, such as `dridh · setup 2/3 · indexing 37/116 files`, and a notification says when it is done. `/dridh-index` starts it by hand; the Dridh Coordinator can also run it (`code_reacher.index`).
 - **Status line.** A one-line status shows in the home screen footer, and in the prompt footer while a session is open: the feature and its stage; before the first feature, the setup step and the next action (`dridh · setup 3/3 · Shift+Tab: Dridh/Coordinator, describe a feature`, or `describe a feature to start` in a Dridh Coordinator session); or an error as its message (never raw JSON).
-- **Slash commands.** `/dridh` opens the overview (or the first-run setup); `/dridh-index` indexes the code in the background; `/dridh-next` does the next human step; `/dridh-review` opens a document (`use cases`, `design` or `plan`); `/dridh-checklist` opens the review checklist; `/dridh-approve` approves the document under review; `/dridh-lot` opens the execution lot review. The same actions are in the command palette.
+- **Slash commands.** `/dridh` opens the overview (or the first-run setup); `/dridh-index` indexes the code in the background; `/dridh-next` does the next human step; `/dridh-review` opens a document (`use cases`, `design` or `plan`); `/dridh-checklist` opens the review checklist; `/dridh-approve` approves the document under review; `/dridh-lot` opens the execution lot review; `/dridh-files` (or `t` in the panel) shows every document as a tree per feature folder, with its status (`dridh ui documents`). The same actions are in the command palette.
 - **Human confirmations.** Approvals, lot verdicts, starting a run and completing a feature are typed confirmations. For those, the plugin suspends OpenCode's screen, as OpenCode does for `$EDITOR`, and hands the real terminal to the Dridh command. The person types the confirmation into Dridh's own prompt. The plugin never sees or types it. Agents have no tool that reaches any of this.
 - **Checklist ticks** run `dridh reviews checklist`, the same record the CLI keeps.
 
@@ -117,7 +117,9 @@ modified, and the terminal UI is unchanged: the server, terminal and desktop par
   Clicking a diagram opens it large.
 - **Review.** The checklist is real checkboxes (`dridh reviews checklist`). Under the document, *Approve* stays disabled
   until every item is checked; *Request changes* puts the person's note into the session's message box, addressed to
-  the agent, for the person to send. Dridh has no reject command for use cases and designs: the agent revises the
+  the agent, for the person to send.
+- **All documents.** Under the overview, every document Dridh wrote, as a tree per feature folder (`dridh ui documents`):
+  folders open and close, each file shows its status, and a reviewable document opens in the reading view. Dridh has no reject command for use cases and designs: the agent revises the
   document and it is reviewed again.
 - **Typed confirmation.** Approve asks for the reviewer's name (remembered), then starts the same command as the
   terminal (`dridh ideator|designer|planner approve`). The app has no terminal, so `confirm.py` runs the command in a
@@ -125,7 +127,7 @@ modified, and the terminal UI is unchanged: the server, terminal and desktop par
   is passed to Dridh unchanged and Dridh compares it. A wrong phrase is refused by Dridh; Cancel or Escape stops the
   command and nothing is recorded. Decisions from the panel need macOS or Linux.
 - **What it may run.** Windows cannot start programs, so the app's main process runs `dridh` for them, and only the
-  commands listed in `gui/src/commands.ts`: `ui state` and `ui document` (read), `reviews checklist` (record), and the
+  commands listed in `gui/src/commands.ts`: `ui state`, `ui document` and `ui documents` (read), `reviews checklist` (record), and the
   three approvals (typed confirmation). It sets `--project` and `--json` itself. Agents have no tool that reaches the
   main process.
 - **Look.** Colours and fonts come from the app's theme variables, so the panel follows light and dark mode; status is

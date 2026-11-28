@@ -95,7 +95,7 @@ def test_v3_workspace_upgrades_and_keeps_document_history_and_ledger(workspace) 
     assert refused.value.code is ErrorCode.SCHEMA_UNSUPPORTED
 
     result = migrate_to_current(workspace.state_db)
-    assert result["migrated"] is True and [s["to_version"] for s in result["steps"]] == [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+    assert result["migrated"] is True and [s["to_version"] for s in result["steps"]] == [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
     assert schema_version(workspace.state_db) == CURRENT_SCHEMA_VERSION
     with open_store(workspace) as store:
         assert DocumentRepository(store.connection, workspace.workspace_id).current_revision(PATH) is not None  # type: ignore[arg-type]

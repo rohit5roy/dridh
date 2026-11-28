@@ -31,6 +31,7 @@ from dridh.state.documents import DocumentRepository, content_hash
 from dridh.state.reviews import ReviewRepository
 from dridh.state.store import StateStore
 from dridh.state.usecases import UseCaseRepository
+from dridh.workspace.documents_layout import session_layout
 from dridh.workspace.layout import WorkspaceInfo
 
 SESSION_SCHEMA = "dridh.technical-inquiry"
@@ -139,13 +140,14 @@ def _approved_use_case(workspace: WorkspaceInfo, session_id: str | None) -> dict
             details=(str(gate.get("reason", "Human approval and reconciliation are required.")),),
             recovery="Complete Ideator review, obtain human terminal approval and reconcile the exact Use Case revision.",
         )
-    canonical = workspace.project_root / "001-USE-CASES.md"
+    rel = str(gate.get("document") or "001-USE-CASES.md")
+    canonical = workspace.project_root / rel
     if not canonical.is_file() or canonical.is_symlink():
-        raise DridhError(ErrorCode.DEPENDENCY_NOT_READY, "001-USE-CASES.md must be a regular file before Technical Designer can start.")
+        raise DridhError(ErrorCode.DEPENDENCY_NOT_READY, f"{rel} must be a regular file before Technical Designer can start.")
     with StateStore(workspace.state_db, workspace.workspace_id) as store:
         documents = DocumentRepository(store.connection, workspace.workspace_id)
-        metadata = documents.document_metadata("001-USE-CASES.md")
-        revision = documents.current_revision("001-USE-CASES.md")
+        metadata = documents.document_metadata(rel)
+        revision = documents.current_revision(rel)
         if metadata is None or revision is None:
             raise DridhError(ErrorCode.DEPENDENCY_NOT_READY, "The Use Case source has no persisted document revision.")
         disk = canonical.read_text(encoding="utf-8")
@@ -158,7 +160,7 @@ def _approved_use_case(workspace: WorkspaceInfo, session_id: str | None) -> dict
             raise DridhError(ErrorCode.VALIDATION_FAILED, "The current Use Case revision has no passing deterministic validation.")
         repository = UseCaseRepository(store.connection, workspace.workspace_id)
         findings = repository.projection_findings(
-            relative_path="001-USE-CASES.md",
+            relative_path=rel,
             document_id=str(metadata["id"]),
             current_revision_id=revision.id,
             current_content=documents.stored_content(revision.id),
@@ -167,6 +169,7 @@ def _approved_use_case(workspace: WorkspaceInfo, session_id: str | None) -> dict
             raise DridhError(ErrorCode.VALIDATION_FAILED, "Use Case SQLite reconciliation is not clean.", details=tuple(item.message for item in findings[:10]))
         model = repository.stored_model(str(metadata["id"]))
         return {
+            "path": rel,
             "document_id": str(metadata["id"]),
             "revision_id": revision.id,
             "sha256": revision.content_sha256,
@@ -435,7 +438,7 @@ class DesignerService:
             "objective": objective,
             "ideator_session_id": ideator_session_id,
             "source": {
-                "path": "001-USE-CASES.md",
+                "path": source.get("path", "001-USE-CASES.md"),
                 "document_id": source["document_id"],
                 "revision_id": source["revision_id"],
                 "sha256": source["sha256"],
@@ -814,7 +817,7 @@ class DesignerService:
             f"**Last Updated:** {datetime.now(UTC).date().isoformat()}",
             f"**Feature:** {feature}",
             f"**Owner:** {blocks.get('owner', 'OPEN — owner confirmation required')}",
-            "**Source Use Case Document:** 001-USE-CASES.md",
+            f"**Source Use Case Document:** {Path(payload['source']['path']).name}",
             "",
         ]
         aliases = {
@@ -891,12 +894,15 @@ class DesignerService:
             model=model,
             validate=lambda reply: self._validate_generation(reply, source),
         )
-        target = self.project_root / f"{payload['feature_slug']}_tdd.md"
+        with StateStore(self.workspace.state_db, self.workspace.workspace_id) as store:
+            layout = session_layout(store.connection, self.workspace.workspace_id, designer=payload["session_id"], ideator=payload["ideator_session_id"])
+        target_rel = (payload.get("generated") or {}).get("path") or layout.design(payload["feature_slug"])
+        target = self.project_root / target_rel
         if target.exists() and (not target.is_file() or target.is_symlink()):
             raise DridhError(ErrorCode.CONFIGURATION_CONFLICT, "The target TDD path is not a regular file.")
         if target.exists():
             with StateStore(self.workspace.state_db, self.workspace.workspace_id) as store:
-                current = DocumentRepository(store.connection, self.workspace.workspace_id).current_revision(target.name)
+                current = DocumentRepository(store.connection, self.workspace.workspace_id).current_revision(target_rel)
                 if current is None or content_hash(target.read_text(encoding="utf-8")) != current.content_sha256:
                     raise DridhError(ErrorCode.CONFIGURATION_CONFLICT, "An unmanaged or edited TDD already exists; it was not overwritten.")
         previous = target.read_bytes() if target.exists() else None
@@ -904,16 +910,16 @@ class DesignerService:
             with store.transaction() as connection:
                 allocator = CoordinatorIdAllocator(connection)
                 if previous is not None:
-                    allocator.reserve_document_ids(previous.decode("utf-8"), source_document=target.name, document_type="tdd")
+                    allocator.reserve_document_ids(previous.decode("utf-8"), source_document=target_rel, document_type="tdd")
                 component_rows = []
                 for component in generated["components"]:
-                    component_rows.append({"key": component["key"], "component_id": allocator.allocate("component", source_document=target.name), "name": component["name"]})
+                    component_rows.append({"key": component["key"], "component_id": allocator.allocate("component", source_document=target_rel), "name": component["name"]})
                 decision_rows = []
                 for decision in generated["decisions"]:
-                    decision_rows.append({"key": decision["key"], "decision_id": allocator.allocate("design_decision", source_document=target.name)})
+                    decision_rows.append({"key": decision["key"], "decision_id": allocator.allocate("design_decision", source_document=target_rel)})
                 risk_rows = []
                 for _risk in generated["risks"]:
-                    risk_rows.append({"risk_id": allocator.allocate("risk", source_document=target.name)})
+                    risk_rows.append({"risk_id": allocator.allocate("risk", source_document=target_rel)})
                 allocated = {"components": component_rows, "decisions": decision_rows, "risks": risk_rows}
                 document = self._render_tdd(payload, generated, source, allocated=allocated)
                 validation = validate_tdd(document, file=target.name)
@@ -922,13 +928,13 @@ class DesignerService:
                 # Verify Table 13 covers every approved Use Case/flow before recording the revision.
                 tdd_model = validated_tdd_model(document, target.name)
                 revision, _ = DocumentRepository(connection, self.workspace.workspace_id).record_revision(
-                    relative_path=target.name,
+                    relative_path=target_rel,
                     document_type="tdd",
                     content=document,
                     standards_version=STANDARDS_VERSION,
-                    source_path=target.name,
+                    source_path=target_rel,
                 )
-                metadata = DocumentRepository(connection, self.workspace.workspace_id).document_metadata(target.name)
+                metadata = DocumentRepository(connection, self.workspace.workspace_id).document_metadata(target_rel)
                 assert metadata is not None
                 validation_id = DocumentRepository(connection, self.workspace.workspace_id).record_validation(
                     revision_id=revision.id,
@@ -938,7 +944,7 @@ class DesignerService:
                 )
                 design = DesignRepository(connection, self.workspace.workspace_id)
                 counts = design.replace_tdd(document_id=str(metadata["id"]), revision_id=revision.id, model=tdd_model)
-                findings = design.findings(relative_path=target.name, document_id=str(metadata["id"]), kind="TDD", current_revision_id=revision.id, current_content=document)
+                findings = design.findings(relative_path=target_rel, document_id=str(metadata["id"]), kind="TDD", current_revision_id=revision.id, current_content=document)
                 if findings:
                     raise DridhError(ErrorCode.VALIDATION_FAILED, "SQLite design reconciliation is not clean.", details=tuple(finding.message for finding in findings[:10]))
                 reviews = ReviewRepository(connection, self.workspace.workspace_id)
@@ -948,7 +954,7 @@ class DesignerService:
                 component_ids = {item["key"]: item["component_id"] for item in component_rows}
                 decision_ids = {item["key"]: item["decision_id"] for item in decision_rows}
                 payload["generated"] = {
-                    "path": target.name,
+                    "path": target_rel,
                     "sha256": content_hash(document),
                     "revision_id": revision.id,
                     "validation_id": validation_id,
@@ -1056,7 +1062,8 @@ class DesignerService:
         source = self._validate_source_current(payload)
         if source["revision_id"] != payload["source"]["revision_id"] or source["sha256"] != payload["source"]["sha256"]:
             raise DridhError(ErrorCode.CONFIGURATION_CONFLICT, "The approved Use Case source changed; TDD approval is refused.")
-        target = self.project_root / payload["generated"]["path"]
+        target_rel = payload["generated"]["path"]
+        target = self.project_root / target_rel
         if not target.is_file() or target.is_symlink():
             raise DridhError(ErrorCode.CONFIGURATION_CONFLICT, "The TDD is missing or is not a regular file.")
         document = target.read_text(encoding="utf-8")
@@ -1068,15 +1075,15 @@ class DesignerService:
         with StateStore(self.workspace.state_db, self.workspace.workspace_id) as store:
             with store.transaction() as connection:
                 documents = DocumentRepository(connection, self.workspace.workspace_id)
-                metadata = documents.document_metadata(target.name)
-                revision = documents.current_revision(target.name)
+                metadata = documents.document_metadata(target_rel)
+                revision = documents.current_revision(target_rel)
                 if metadata is None or revision is None or revision.id != challenge["revision_id"]:
                     raise DridhError(ErrorCode.CONFIGURATION_CONFLICT, "The TDD revision is stale; approval is refused.")
                 latest = documents.latest_validation(revision.id, TDD_VALIDATOR)
                 if latest is None or latest.status != "PASS":
                     raise DridhError(ErrorCode.VALIDATION_FAILED, "The TDD revision has no passing stored validation.")
                 design = DesignRepository(connection, self.workspace.workspace_id)
-                findings = design.findings(relative_path=target.name, document_id=str(metadata["id"]), kind="TDD", current_revision_id=revision.id, current_content=documents.stored_content(revision.id))
+                findings = design.findings(relative_path=target_rel, document_id=str(metadata["id"]), kind="TDD", current_revision_id=revision.id, current_content=documents.stored_content(revision.id))
                 if findings or not design.is_current(document_id=str(metadata["id"]), revision_id=revision.id, kind="TDD", model=validated_tdd_model(document, target.name)):
                     raise DridhError(ErrorCode.CONFIGURATION_CONFLICT, "The TDD design projection is stale or inconsistent.", details=tuple(item.message for item in findings[:10]))
                 approval_id = ReviewRepository(connection, self.workspace.workspace_id).decide(
@@ -1140,6 +1147,7 @@ class DesignerService:
             "stage": "dridh/planner",
             "session_id": session_id,
             "tdd_path": generated["path"],
+            "use_case_path": payload["source"].get("path", "001-USE-CASES.md"),
             "tdd_revision_id": generated["revision_id"],
             "tdd_sha256": generated["sha256"],
             "source_use_case_revision_id": source["revision_id"],

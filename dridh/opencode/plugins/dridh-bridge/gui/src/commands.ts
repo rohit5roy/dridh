@@ -11,6 +11,7 @@
 export const READ: readonly (readonly string[])[] = [
   ["ui", "state"],
   ["ui", "document"],
+  ["ui", "documents"],
 ]
 
 /** Records a person makes without a typed confirmation, as in the terminal panel: ticking a checklist item. */

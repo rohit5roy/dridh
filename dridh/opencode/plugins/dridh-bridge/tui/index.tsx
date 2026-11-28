@@ -476,7 +476,7 @@ export default Plugin.define({
 
     // ------------------------------------------------------------------ where a view opens
 
-    type View = { name: "overview" | "document" | "checklist" | "lot" | "metrics" | "coverage"; data?: Record<string, any> }
+    type View = { name: "overview" | "document" | "checklist" | "lot" | "metrics" | "coverage" | "files"; data?: Record<string, any> }
     const [panelView, setPanelView] = createSignal<View>({ name: "overview" })
 
     /**
@@ -1121,9 +1121,77 @@ export default Plugin.define({
       )
     }
 
+    // ------------------------------------------------------------------ files (every document, as a tree)
+
+    /** Every document Dridh wrote, per feature folder (`dridh ui documents`), with its status. j/k moves; enter opens a
+     *  reviewable document (use cases, design, plan) in the document view. */
+    function FilesBody(props: { active: () => boolean }) {
+      const [view, setView] = createSignal<Json>(undefined)
+      const [problem, setProblem] = createSignal<string>()
+      const [index, setIndex] = createSignal(0)
+      const load = () => dridhJson(["ui", "documents"], root()).then((v) => { setView(v); setProblem(undefined) }).catch((e) => setProblem((e as Error).message))
+      void load()
+      type Line = { text: string; label?: string; status?: string; path?: string; heading?: boolean }
+      const lines = createMemo((): Line[] => {
+        const out: Line[] = []
+        const walk = (nodes: Json[], prefix: string) => nodes.forEach((node, i) => {
+          const last = i === nodes.length - 1
+          const branch = prefix + (last ? "└── " : "├── ")
+          if (node.type === "folder") {
+            out.push({ text: `${branch}${node.name}/` })
+            walk(node.children, prefix + (last ? "    " : "│   "))
+          } else out.push({ text: `${branch}${node.name}`, label: node.label, status: node.status, path: node.path })
+        })
+        for (const f of (view()?.features ?? []).filter((x: Json) => x.folder)) {
+          out.push({ text: `${f.folder}/`, label: `${f.name} · ${f.stage_label}`, heading: true })
+          if (f.tree.length) walk(f.tree, "")
+          else out.push({ text: "└── (no documents yet)" })
+        }
+        if (view()?.other?.length) {
+          out.push({ text: "Older documents (before feature folders)", heading: true })
+          walk(view().other, "")
+        }
+        return out
+      })
+      const files = () => lines().filter((l) => l.path)
+      const selected = () => files()[Math.min(index(), Math.max(0, files().length - 1))]
+      const tone = (status?: string) => status === "approved" ? c.ok : status === "changes_requested" || status === "missing" ? c.bad
+        : status === "in_review" || status === "stale" || status === "edited" ? c.warn : c.muted
+      const stageOf = (path?: string) => Object.entries(state()?.documents ?? {}).find(([, d]: [string, Json]) => d.document === path)?.[0]
+      useKeyboard((key) => {
+        if (!props.active()) return
+        if (key.name === "r") return void load()
+        if (key.name === "down" || key.name === "j") return setIndex((i) => Math.min(files().length - 1, i + 1))
+        if (key.name === "up" || key.name === "k") return setIndex((i) => Math.max(0, i - 1))
+        if (key.name === "return" || key.name === "enter") {
+          const stage = stageOf(selected()?.path)
+          if (stage) return show({ name: "document", data: { stage } })
+          return ctx.ui.toast.show({ message: selected()?.path ?? "No document selected.", variant: "info" })
+        }
+      })
+      const width = () => Math.max(24, ...lines().map((l) => l.text.length)) + 2
+      return (
+        <Show when={view()} fallback={<text fg={problem() ? c.bad : c.muted}>{problem() ?? "Loading…"}</text>}>
+          <Show when={lines().length} fallback={<text fg={c.muted}>No documents yet. They appear here as the agents write them.</text>}>
+            <box flexDirection="column">
+              <For each={lines()}>
+                {(line) => (
+                  <text fg={line.heading ? c.heading : line.path && line.path === selected()?.path ? c.accent : c.text}>
+                    {line.heading ? <b>{line.text}</b> : (line.path === selected()?.path ? "▸ " : "  ") + line.text.padEnd(width())}
+                    <span style={{ fg: line.heading ? c.muted : tone(line.status) }}>{line.heading ? `   ${line.label}` : line.label ?? ""}</span>
+                  </text>
+                )}
+              </For>
+            </box>
+            <text fg={c.muted}>j/k move · enter open a reviewable document · r refresh · same tree: dridh documents tree</text>
+          </Show>
+        </Show>
+      )
+    }
+
     // ------------------------------------------------------------------ the session panel
 
-    const TABS: [View["name"], string][] = [["overview", "Overview"], ["document", "Document"], ["checklist", "Checklist"], ["lot", "Lots"], ["coverage", "Coverage"], ["metrics", "Metrics"]]
+    const TABS: [View["name"], string][] = [["overview", "Overview"], ["document", "Document"], ["checklist", "Checklist"], ["lot", "Lots"], ["coverage", "Coverage"], ["files", "Files"], ["metrics", "Metrics"]]
 
     ctx.ui.slot({
       append: "session.panel",
@@ -1134,7 +1202,7 @@ export default Plugin.define({
             useKeyboard((key) => {
               if (!input.focused) return
               if (key.name === "escape") return input.close()
-              const tab = { o: "overview", ...(panelView().name === "document" ? {} : { d: "document" }), h: "checklist", ...(panelView().name === "lot" ? {} : { l: "lot" }), m: "metrics", v: "coverage" }[key.name as "o"] as View["name"] | undefined
+              const tab = { o: "overview", ...(panelView().name === "document" ? {} : { d: "document" }), h: "checklist", ...(panelView().name === "lot" ? {} : { l: "lot" }), m: "metrics", v: "coverage", t: "files" }[key.name as "o"] as View["name"] | undefined
               if (tab && tab !== panelView().name) {
                 if (tab === "lot") return openLot()
                 if (tab === "document") return show({ name: "document", data: { stage: openReviewKey() ?? action()?.stage_key ?? "design" } })
@@ -1155,6 +1223,7 @@ export default Plugin.define({
                 <Show when={panelView().name === "checklist"}><ChecklistBody stage={panelView().data?.stage} active={active} /></Show>
                 <Show when={panelView().name === "metrics"}><MetricsBody active={active} /></Show>
                 <Show when={panelView().name === "coverage"}><CoverageBody active={active} narrow={input.width < 110} /></Show>
+                <Show when={panelView().name === "files"}><FilesBody active={active} /></Show>
                 <Show when={panelView().name === "document" && panelView().data?.stage} keyed>
                   {(stage: string) => <DocumentBody stage={stage} active={active} width={() => input.width} fullscreen={() => input.toggleFullscreen()} />}
                 </Show>
@@ -1193,6 +1262,7 @@ export default Plugin.define({
     ctx.ui.router.register({ name: "lot", render: (input) => <Page title="execution"><LotBody run={input.data?.run} lot={input.data?.lot} active={always} /></Page> })
     ctx.ui.router.register({ name: "metrics", render: () => <Page title="metrics"><MetricsBody active={always} /></Page> })
     ctx.ui.router.register({ name: "coverage", render: () => <Page title="coverage"><CoverageBody active={always} /></Page> })
+    ctx.ui.router.register({ name: "files", render: () => <Page title="documents"><FilesBody active={always} /></Page> })
 
     /** A view in the home-screen dialog: the same bodies as the pages, closed with esc or q. */
     function homeView(view: View): Json {
@@ -1203,6 +1273,7 @@ export default Plugin.define({
       if (view.name === "lot") return <Page title="execution" close={close}><LotBody run={view.data?.run} lot={view.data?.lot} active={always} /></Page>
       if (view.name === "metrics") return <Page title="metrics" close={close}><MetricsBody active={always} /></Page>
       if (view.name === "coverage") return <Page title="coverage" close={close}><CoverageBody active={always} /></Page>
+      if (view.name === "files") return <Page title="documents" close={close}><FilesBody active={always} /></Page>
       return <Page title="overview" close={close}><OverviewBody active={always} /></Page>
     }
 
@@ -1239,6 +1310,8 @@ export default Plugin.define({
         { id: "dridh.lot", title: "Dridh: execution lot review", group: "Dridh", palette: true, slash: { name: "dridh-lot" }, run: () => openLot() },
         { id: "dridh.coverage", title: "Dridh: coverage", description: "Every approved flow with its story, state, proof or deviation, and code",
           group: "Dridh", palette: true, slash: { name: "dridh-coverage" }, run: () => show({ name: "coverage" }) },
+        { id: "dridh.files", title: "Dridh: all documents", description: "Every document Dridh wrote, as a tree per feature folder, with its status",
+          group: "Dridh", palette: true, slash: { name: "dridh-files" }, run: () => show({ name: "files" }) },
         { id: "dridh.metrics", title: "Dridh: metrics", description: "Stories, repairs, model usage and cost, reviews, deviations and the code index, as tables",
           group: "Dridh", palette: true, slash: { name: "dridh-metrics" }, run: () => show({ name: "metrics" }) },
       ],

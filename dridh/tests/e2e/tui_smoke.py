@@ -50,7 +50,7 @@ WIDTH, HEIGHT = 320, 87
 SESSION = "dridh-tui-smoke"
 OPENCODE_SESSION = "ses_0123456789abcdef0123456789"
 OTHER_FILES = 1500
-PANEL_HEADER = re.compile(r"Dridh\s+Overview\s+Document\s+Checklist\s+Lots\s+Coverage\s+Metrics")
+PANEL_HEADER = re.compile(r"Dridh\s+Overview\s+Document\s+Checklist\s+Lots\s+Coverage\s+(Files\s+)?Metrics")
 
 # --------------------------------------------------------------------------- rendering
 
@@ -514,6 +514,8 @@ def capture_feature_views(smoke: Smoke, project: Path) -> None:
     smoke.wait("13-observability-metrics", "Model usage by stage", forbid=('"ok"', '"error":'))
     keys("v")
     smoke.wait("14-completion-matrix-deviation", "LDG-", forbid=('"ok"', '"error":'))
+    keys("t")
+    smoke.wait("16-documents-tree", "same tree: dridh documents tree", forbid=('"ok"', '"error":'))
     keys("l")
     smoke.wait("15-execution-lot-review", "lot", forbid=('"ok"', '"error":'))
 

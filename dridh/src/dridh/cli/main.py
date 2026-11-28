@@ -1337,6 +1337,15 @@ def documents_record(
     _emit(outcome)
 
 
+@documents_app.command("tree")
+def documents_tree(project: str = PROJECT_OPTION) -> None:
+    """Every document Dridh wrote, as a tree per feature folder, with each document's status. Read-only."""
+    from dridh.ui.documents import document_tree, render_tree
+
+    data = document_tree(_workspace(project))
+    typer.echo(to_json(data) if wants_json() else render_tree(data))
+
+
 @documents_app.command("show")
 def documents_show(path: str = PATH_ARGUMENT, project: str = PROJECT_OPTION) -> None:
     """Show a document's persisted metadata, revision history and latest validations. Read-only."""
@@ -1810,7 +1819,7 @@ def _ledger_decide(ledger_id: str, decision: str, reviewer: str, reason: str, le
 
 
 _REVIEWER_HELP = "Human reviewer name. This is attribution metadata, not authentication."
-_LEDGER_FILE_HELP = "Path to LEDGER.md (default: the workspace's .opencode/dridh/documents/LEDGER.md)."
+_LEDGER_FILE_HELP = "Path to the ledger (default: the current feature's 007-LEDGER.md, or .opencode/dridh/documents/LEDGER.md for an older feature)."
 
 
 @ledger_app.command("approve")
@@ -2141,7 +2150,7 @@ def _designer(project: str) -> DesignerService:
 @designer_app.command("start")
 def designer_start(
     ideator_session_id: str,
-    feature: str = typer.Option(..., "--feature", help="Feature slug/name used for <feature>_tdd.md."),
+    feature: str = typer.Option(..., "--feature", help="Feature name; the design is written to the feature's 002-TECHNICAL-DESIGN.md."),
     project: str = PROJECT_OPTION,
     existing_context: str = typer.Option("", "--existing-context"),
     code_reacher_evidence: str = typer.Option("", "--code-reacher-evidence", help="Verified Code Reacher findings; do not substitute assumptions."),
@@ -2599,6 +2608,15 @@ def ui_document(stage: str = typer.Argument(..., help="use_cases, design or plan
     from dridh.ui.state import document_view, dump
 
     typer.echo(dump(document_view(_workspace(project), stage, feature)))
+
+
+@ui_app.command("documents")
+def ui_documents(project: str = PROJECT_OPTION) -> None:
+    """Every document as a tree per feature folder, with status, for the panels' document tree."""
+    from dridh.ui.documents import document_tree
+    from dridh.ui.state import dump
+
+    typer.echo(dump(document_tree(_workspace(project))))
 
 
 @ui_app.command("metrics")

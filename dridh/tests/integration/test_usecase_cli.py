@@ -126,7 +126,7 @@ def test_v3_workspace_is_blocked_until_migrated_then_imports(tmp_path: Path) -> 
     assert json.loads(blocked.stdout)["status"] == "BLOCKED"
     migrated = run("migrate", "--project", str(project), cwd=project)
     assert migrated.returncode == 0, migrated.stderr
-    assert [s["to_version"] for s in json.loads(migrated.stdout)["steps"]] == [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+    assert [s["to_version"] for s in json.loads(migrated.stdout)["steps"]] == [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
     imported = run("usecases", "import", str(path), "--project", str(project), cwd=project)
     assert imported.returncode == 0, imported.stderr
 

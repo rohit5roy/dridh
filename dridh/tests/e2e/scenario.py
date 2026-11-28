@@ -709,7 +709,7 @@ def prepare_tui_review(project: Path) -> dict[str, Any]:
     from planner_test_helpers import IDEATOR_SESSION
 
     from dridh.ideator.service import CHECKLIST, IdeatorService
-    from dridh.ledger.drafts import LEDGER_PATH, add_drafts
+    from dridh.ledger.drafts import add_drafts, ledger_path
     from dridh.ledger.flows import approved_flows, story_flows
     from dridh.state.documents import DocumentRepository
     from dridh.state.reviews import ReviewRepository
@@ -717,10 +717,11 @@ def prepare_tui_review(project: Path) -> dict[str, Any]:
     from dridh.workspace.layout import open_workspace
 
     info = open_workspace(project)
+    use_cases = str(IdeatorService(info)._load(IDEATOR_SESSION)["generated"]["path"])  # in the feature's folder
     with StateStore(info.state_db, info.workspace_id) as store, store.transaction() as connection:
         documents = DocumentRepository(connection, info.workspace_id)
-        metadata = documents.document_metadata("001-USE-CASES.md")
-        revision = documents.current_revision("001-USE-CASES.md")
+        metadata = documents.document_metadata(use_cases)
+        revision = documents.current_revision(use_cases)
         if metadata is None or revision is None:
             raise RuntimeError("the Phase 13 fixture has no current Use Cases revision")
         repository = ReviewRepository(connection, info.workspace_id)
@@ -743,7 +744,7 @@ def prepare_tui_review(project: Path) -> dict[str, Any]:
         raise RuntimeError("the Phase 13 fixture has no story linked to an approved flow")
     # E2E-46 imports a legacy-format ledger from the project root. Carry that row into the workspace ledger so this
     # additional screenshot-only draft gets the next deterministic ID rather than colliding with the existing LDG-01.
-    canonical_ledger = project / LEDGER_PATH
+    canonical_ledger = project / ledger_path(info)
     canonical_ledger.parent.mkdir(parents=True, exist_ok=True)
     canonical_ledger.write_text((project / "LEDGER.md").read_text(encoding="utf-8"), encoding="utf-8")
     ledger = add_drafts(info, [{"flow": flow, "status": "NOT_DONE", "story": story,
@@ -774,7 +775,8 @@ def phase13_planner_checks() -> None:
     gate: dict[str, Any] | None = None
     setup_error = ""
     try:
-        info, designer_session_id = seed_approved_baseline(project)
+        # The project has feature folders: the documents live in docs/dridh/001-ORDER-INTAKE/ with numbered names.
+        info, designer_session_id = seed_approved_baseline(project, feature="Order Intake")
         runner = OpenCodeRunner(
             executable=OPENCODE,
             workspace_root=project,
@@ -855,9 +857,9 @@ def phase13_planner_checks() -> None:
             for suffix in required_suffixes:
                 if not any(path.endswith(suffix) for path in paths):
                     artifact_details["missing"].append(suffix)
-            if not any("/COMPONENT-MASTER.md" in path for path in paths):
+            if not any(path.endswith("COMPONENT-MASTER.md") for path in paths):  # COMPONENT-MASTER.md or 001-COMPONENT-MASTER.md
                 artifact_details["missing"].append("COMPONENT-MASTER.md")
-            if not any("/PHASE-" in path for path in paths):
+            if not any("PHASE-" in Path(path).name for path in paths):
                 artifact_details["missing"].append("PHASE-*.md")
             with StateStore(info.state_db, info.workspace_id) as store:
                 documents = DocumentRepository(store.connection, info.workspace_id)
@@ -929,7 +931,7 @@ def phase13_planner_checks() -> None:
             from dridh.coordinator.lifecycle import FeatureLifecycle
 
             lifecycle = FeatureLifecycle(info)
-            lifecycle.create_feature("Order Intake", actor="e2e:lifecycle")
+            # The fixture created the feature (with its documents folder) and bound its Ideator and Designer sessions.
             lifecycle.bind_session("order-intake", "ideator_session_id", IDEATOR_SESSION, actor="e2e:lifecycle")
             synced = lifecycle.sync("order-intake", actor="e2e:lifecycle")
             visited = [move["to"] for move in synced["moves"]]
@@ -1048,10 +1050,13 @@ def executor_plan_run(info: Any, planner: Any, session_id: str, project: Path) -
     after = planner.gate(session_id)
     statuses = {item["story_id"]: item["status"] for item in planner.execution_stories(session_id)}
     branches = git("branch", "--list", "dridh/story/*").splitlines()
+    # The main checkout's code is untouched (stories work in their own worktrees). Dridh's own documents folder is left
+    # out: the plan documents record each story's status as the run goes, and are committed at delivery.
+    untouched = git("status", "--porcelain", "--", ".", ":(exclude)docs/dridh") == ""
     ok = (final["run"]["status"] == "COMPLETED" and set(statuses.values()) == {"COMPLETED"} and after.get("unlocked") is True
-          and len(branches) == len(statuses) and git("status", "--porcelain") == "" and reviewed >= 2)
+          and len(branches) == len(statuses) and untouched and reviewed >= 2)
     return {"ok": ok, "run_id": run["id"], "run": final["run"]["status"], "stories": len(statuses), "lots": [(lot["kind"], lot["status"]) for lot in final["lots"]],
-            "gate_after": after.get("unlocked"), "reason": after.get("reason"), "branches": len(branches)}
+            "gate_after": after.get("unlocked"), "reason": after.get("reason"), "branches": len(branches), "code_untouched": untouched}
 
 
 def delivery_plan_run(info: Any, planner: Any, project: Path, run_id: str) -> dict[str, Any]:
@@ -1110,7 +1115,12 @@ def delivery_plan_run(info: Any, planner: Any, project: Path, run_id: str) -> di
           and git("rev-parse", "main", cwd=remote) == git("rev-parse", "main") and "main" in bases
           and all(engine.gates(sid).get("DEPENDENTS_UNLOCKED", {}).get("status") == "PASS" for sid in unlocked)
           and planner.gate(session_id).get("unlocked") is True and len(tree) > len(stories))
+    # The feature's documents travel with its code: the folder is on the integration branch.
+    folder = "docs/dridh/001-ORDER-INTAKE/"
+    documents = sorted(path[len(folder):] for path in tree if path.startswith(folder))
+    ok = ok and {"001-USE-CASES.md", "002-TECHNICAL-DESIGN.md", "003-CENTRAL-PLAN-INDEX.md", "004-TEST-PLAN.md"} <= set(documents)
     return {"ok": ok, "unlocked": len(unlocked), "stories": len(stories), "prs": len(github.prs), "bases": sorted(bases),
+            "documents_on_integration_branch": documents,
             "index_matches_tip": engine._index_revision() == tip, "gate_after": planner.gate(session_id).get("unlocked")}  # noqa: SLF001
 
 

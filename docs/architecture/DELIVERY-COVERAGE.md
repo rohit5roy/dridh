@@ -4,7 +4,7 @@ Every approved use-case flow ends in one of two ways before a feature may leave 
 
 - **Proven:** the story that owns the flow is complete, its Executor reported the flow `IMPLEMENTED`, and a passing test
   whose name carries the flow ID proves it.
-- **Explained:** `LEDGER.md` has a `DEVIATED`, `NOT_DONE` or `WONT_DO` entry for the flow, with a current human approval.
+- **Explained:** the feature's ledger (`007-LEDGER.md`) has a `DEVIATED`, `NOT_DONE` or `WONT_DO` entry for the flow, with a current human approval.
 
 A plan may give one flow to several stories, for example a store, a service and a command-line story that together
 serve a use case. Then proof by any of them proves the flow, and a `NOT_DONE` entry for that flow from another of them is
@@ -41,7 +41,7 @@ skipped (`method: static`). A flow reported `IMPLEMENTED` without proof fails th
 ## Draft deviation entries
 
 For each flow reported `CHANGED` or `NOT_DONE` in a story that passed its checks, `ledger/drafts.py` appends an entry
-to `.opencode/dridh/documents/LEDGER.md` (created with Table 14 when missing) and imports it:
+to the ledger of the feature in progress, `docs/dridh/NNN-FEATURE/007-LEDGER.md` (`.opencode/dridh/documents/LEDGER.md` for a feature created before feature folders; created with Table 14 when missing), and imports it:
 
 - `CHANGED` becomes `DEVIATED` and `NOT_DONE` stays `NOT_DONE`;
 - the original requirement is copied from the approved Use Case rows;

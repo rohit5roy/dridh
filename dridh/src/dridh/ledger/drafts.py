@@ -16,14 +16,31 @@ from dridh.document_contracts.markdown import parse_tables, plain
 from dridh.document_contracts.validator import H_LEDGER, STANDARDS_VERSION
 from dridh.ledger.flows import approved_flows
 from dridh.state.store import StateStore, utc_now
+from dridh.workspace.documents_layout import feature_layout
 from dridh.workspace.layout import WorkspaceInfo
 
-LEDGER_PATH = ".opencode/dridh/documents/LEDGER.md"
+LEDGER_PATH = ".opencode/dridh/documents/LEDGER.md"  # the legacy location, for features without a documents folder
 DRAFT_STATUSES = ("DEVIATED", "NOT_DONE")
 
 
+def ledger_path(workspace: WorkspaceInfo) -> str:
+    """The ledger of the feature in progress, relative to the project root.
+
+    A workspace builds one feature at a time: the newest feature that is not completed owns the ledger. Its folder's
+    ``007-LEDGER.md``, or the legacy ``.opencode/dridh/documents/LEDGER.md`` for a feature from before feature folders.
+    """
+    try:
+        with StateStore(workspace.state_db, workspace.workspace_id) as store:
+            row = store.connection.execute(
+                "SELECT id FROM feature WHERE workspace_id=? AND stage<>'COMPLETED' ORDER BY created_at DESC, rowid DESC LIMIT 1",
+                (workspace.workspace_id,)).fetchone()
+            return feature_layout(store.connection, workspace.workspace_id, str(row[0]) if row else None).ledger()
+    except DridhError:
+        return LEDGER_PATH
+
+
 def ledger_file(workspace: WorkspaceInfo) -> Path:
-    return Path(workspace.project_root) / LEDGER_PATH
+    return Path(workspace.project_root) / ledger_path(workspace)
 
 
 def _cell(value: str, limit: int = 300) -> str:
@@ -57,7 +74,7 @@ def add_drafts(workspace: WorkspaceInfo, drafts: list[dict[str, Any]]) -> dict[s
     content = path.read_text(encoding="utf-8") if path.is_file() else _skeleton()
     rows = _existing(content)
     if not any(True for _ in parse_tables(content) if _.header == H_LEDGER):
-        raise DridhError(ErrorCode.VALIDATION_FAILED, f"{LEDGER_PATH} has no Table 14; fix it before Dridh can add entries.")
+        raise DridhError(ErrorCode.VALIDATION_FAILED, f"{ledger_path(workspace)} has no Table 14; fix it before Dridh can add entries.")
     taken = {(row[1], row[3]) for row in rows if len(row) >= 4}
     numbers = [int(row[0][4:]) for row in rows if re.fullmatch(r"LDG-\d{2}", row[0] if row else "")]
     with StateStore(workspace.state_db, workspace.workspace_id) as store:
@@ -100,8 +117,9 @@ def add_drafts(workspace: WorkspaceInfo, drafts: list[dict[str, Any]]) -> dict[s
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(updated, encoding="utf-8")
 
-    LedgerService(workspace).import_ledger(LEDGER_PATH)
-    return {"written": written, "document": LEDGER_PATH}
+    relative = ledger_path(workspace)
+    LedgerService(workspace).import_ledger(relative)
+    return {"written": written, "document": relative}
 
 
 def drafts_from_report(story_id: str, flows: dict[str, dict[str, str]]) -> list[dict[str, Any]]:

@@ -105,14 +105,14 @@ export function DridhPanel(props: { env: Env; session: MountedSession; screen: S
             onBack={() => setOpen(undefined)} refresh={live.refresh} />
         </Match>
         <Match when={live.state()}>
-          <Overview env={props.env} state={live.state()} onOpen={setOpen} />
+          <Overview env={props.env} project={project()} state={live.state()} onOpen={setOpen} />
         </Match>
       </Switch>
     </div>
   )
 }
 
-function Overview(props: { env: Env; state: Json; onOpen: (stage: string) => void }) {
+function Overview(props: { env: Env; project: string; state: Json; onOpen: (stage: string) => void }) {
   const ui = props.env.ctx.ui
   const feature = () => props.state.feature
   const timeline = (): Json[] => props.state.timeline ?? []
@@ -169,7 +169,103 @@ function Overview(props: { env: Env; state: Json; onOpen: (stage: string) => voi
           </For>
         </Show>
       </section>
+
+      <DocumentTree env={props.env} project={props.project} state={props.state} onOpen={props.onOpen} />
     </div>
+  )
+}
+
+const TREE_TONE: Record<string, Tone> = {
+  approved: "success", in_review: "attention", stale: "danger", edited: "attention", changes_requested: "danger",
+  missing: "danger", recorded: "neutral", untracked: "neutral",
+}
+
+/** Every document Dridh wrote (`dridh ui documents`): one folder per feature, folders open and close, a reviewable
+ *  document opens in the reading view. Refreshed when the feature's state changes. */
+function DocumentTree(props: { env: Env; project: string; state: Json; onOpen: (stage: string) => void }) {
+  const { ctx, desk } = props.env
+  const ui = ctx.ui
+  const [tree, setTree] = createSignal<Json>()
+  const [error, setError] = createSignal<Failure>()
+  const [closed, setClosed] = createSignal<Record<string, boolean>>({})
+  const load = async () => {
+    const reply = readReply<Json>(await desk.read({ project: props.project, args: ["ui", "documents"] }).catch((e: unknown) => failure(e)))
+    if (reply.ok) { setTree(reply.data); setError(undefined) } else setError(reply.error)
+  }
+  // Reload when anything Dridh shows about the documents changes (a new document, a tick, an approval, a new stage).
+  createEffect(on(() => JSON.stringify([props.project, props.state?.feature?.stage, props.state?.documents]), () => void load()))
+  const stageOf = (path: string) => Object.entries(props.state?.documents ?? {}).find(([, d]: [string, Json]) => d.document === path)?.[0]
+  const toggle = (key: string) => setClosed((all) => ({ ...all, [key]: !all[key] }))
+  const features = () => (tree()?.features ?? []).filter((f: Json) => f.folder)
+
+  const Nodes = (p: { nodes: Json[]; depth: number; parent: string }): JSX.Element => (
+    <ul class="dridh-tree" role={p.depth ? "group" : undefined}>
+      <For each={p.nodes}>
+        {(node: Json) => {
+          const key = `${p.parent}/${node.name}`
+          return node.type === "folder" ? (
+            <li role="treeitem" aria-expanded={!closed()[key]}>
+              <button type="button" class="dridh-tree__row" style={{ "padding-left": `${8 + p.depth * 16}px` }} onClick={() => toggle(key)}>
+                <ui.Icon name={closed()[key] ? "chevron-right" : "chevron-down"} size="small" />
+                <span class="dridh-mono">{node.name}/</span>
+              </button>
+              <Show when={!closed()[key]}><Nodes nodes={node.children} depth={p.depth + 1} parent={key} /></Show>
+            </li>
+          ) : (
+            <li role="treeitem">
+              <button type="button" class={`dridh-tree__row ${stageOf(node.path) ? "" : "dridh-tree__row--plain"}`} style={{ "padding-left": `${24 + p.depth * 16}px` }}
+                title={stageOf(node.path) ? `Open ${node.path}` : node.path}
+                onClick={() => { const stage = stageOf(node.path); if (stage) props.onOpen(stage) }}>
+                <ui.Icon name="file-document" size="small" />
+                <span class="dridh-mono dridh-tree__name">{node.name}</span>
+                <span class={`dridh-tree__status dridh-tree__status--${TREE_TONE[node.status] ?? "neutral"}`}>{node.label}</span>
+              </button>
+            </li>
+          )
+        }}
+      </For>
+    </ul>
+  )
+
+  return (
+    <section class="dridh-stack dridh-stack--tight" aria-labelledby="dridh-all-documents">
+      <div class="dridh-card__head">
+        <h2 class="dridh-h2" id="dridh-all-documents">All documents</h2>
+        <span class="dridh-mono dridh-muted">{tree()?.root ?? "docs/dridh"}/</span>
+      </div>
+      <Show when={error()}><Problem error={error()!} /></Show>
+      <Show when={tree()} fallback={<Show when={!error()}><div class="dridh-muted"><ui.Loader size="small" /></div></Show>}>
+        <Show when={features().length || tree().other?.length} fallback={<p class="dridh-muted">No documents yet. They appear here as the agents write them.</p>}>
+          <div class="dridh-tree-card" role="tree" aria-label="All documents">
+            <For each={features()}>
+              {(feature: Json) => {
+                const key = feature.folder
+                return (
+                  <div class="dridh-tree__feature">
+                    <button type="button" class="dridh-tree__row dridh-tree__row--feature" aria-expanded={!closed()[key]} onClick={() => toggle(key)}>
+                      <ui.Icon name={closed()[key] ? "chevron-right" : "chevron-down"} size="small" />
+                      <span class="dridh-mono dridh-tree__name">{String(feature.folder).split("/").at(-1)}/</span>
+                      <span class="dridh-muted">{feature.name} · {feature.stage_label}</span>
+                    </button>
+                    <Show when={!closed()[key]}>
+                      <Show when={feature.tree.length} fallback={<p class="dridh-muted dridh-tree__empty">No documents yet.</p>}>
+                        <Nodes nodes={feature.tree} depth={1} parent={key} />
+                      </Show>
+                    </Show>
+                  </div>
+                )
+              }}
+            </For>
+            <Show when={tree().other?.length}>
+              <div class="dridh-tree__feature">
+                <div class="dridh-tree__row dridh-tree__row--feature dridh-muted">Older documents (before feature folders)</div>
+                <Nodes nodes={tree().other} depth={1} parent="other" />
+              </div>
+            </Show>
+          </div>
+        </Show>
+      </Show>
+    </section>
   )
 }
 

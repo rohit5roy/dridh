@@ -79,8 +79,8 @@ def test_explicit_v8_to_v10_migration_is_backed_up(tmp_path: Path):
     for name in tables: conn.execute(f"DROP TABLE IF EXISTS {name}")
     conn.execute("UPDATE meta SET value='8' WHERE key='schema_version'"); conn.commit(); conn.close()
     result=migrate_to_current(info.state_db)
-    assert result["to_version"]==15 and result["migrated"]
-    assert schema_version(info.state_db)==15
+    assert result["to_version"]==16 and result["migrated"]
+    assert schema_version(info.state_db)==16
     assert all(step["backup_path"] and Path(step["backup_path"]).exists() for step in result["steps"])
     assert integrity_check(info.state_db)["ok"]
 

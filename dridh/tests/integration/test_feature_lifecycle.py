@@ -103,9 +103,9 @@ def test_a_v10_database_migrates_to_v11_keeping_its_data(workspace):
     connection.commit()
     connection.close()
     result = migrate_to_current(workspace.state_db)
-    assert result["to_version"] == 15 and [step["to_version"] for step in result["steps"]] == [11, 12, 13, 14, 15]
+    assert result["to_version"] == 16 and [step["to_version"] for step in result["steps"]] == [11, 12, 13, 14, 15, 16]
     assert result["steps"][0]["backup_path"] and Path(result["steps"][0]["backup_path"]).exists()
-    assert schema_version(workspace.state_db) == 15
+    assert schema_version(workspace.state_db) == 16
     assert _lifecycle(workspace).create_feature("After migration", actor=ACTOR)["stage"] == "INITIALISED"
 
 

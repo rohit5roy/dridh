@@ -411,3 +411,34 @@ def test_github_lagging_behind_a_push_is_pending_not_a_moved_head(world):
     assert engine.gates("ST-001").get("GHA_PASSED", {}).get("status") != "FAIL"
     github.heads[pr["number"]] = pushed  # GitHub caught up
     assert engine.refresh_checks("ST-001")["state"] == "PASS"
+
+
+def test_the_features_documents_reach_the_integration_branch_with_the_code(world):
+    """A feature's folder is committed on its integration branch, so its documents arrive in the same PR as the code.
+    Only documents that still match the revision Dridh recorded are committed; an edited one is left out and listed."""
+    from dridh.state.documents import DocumentRepository
+
+    info, root, remote, planner, github, engine, controller, run = world
+    with StateStore(info.state_db, info.workspace_id) as store:
+        folder = store.read().execute("SELECT folder FROM feature_folder WHERE feature_id=?", (run["feature_id"],)).fetchone()[0]
+    recorded = f"{folder}/001-USE-CASES.md"
+    edited = f"{folder}/004-TEST-PLAN.md"
+    (root / folder).mkdir(parents=True)
+    with StateStore(info.state_db, info.workspace_id) as store, store.transaction() as connection:
+        for path in (recorded, edited):
+            (root / path).write_text(f"# {path}\n", encoding="utf-8")
+            DocumentRepository(connection, info.workspace_id).record_revision(
+                relative_path=path, document_type="artifact", content=f"# {path}\n", standards_version="2.1.0", source_path=path)
+    (root / edited).write_text("# edited outside Dridh\n", encoding="utf-8")
+    rid = run["id"]
+    asyncio.run(controller.drive(rid))
+    _reviewed(controller, rid, planner, ["ST-001"])
+    _pr, out = _deliver(engine, rid, "ST-001")
+    assert out["unlocked"]
+    tree = set(git(remote, "ls-tree", "-r", "--name-only", "dridh/integration/f").split())
+    assert recorded in tree and edited not in tree and "src/st-001.py" in tree
+    with StateStore(info.state_db, info.workspace_id) as store:
+        row = store.read().execute("SELECT evidence_json FROM story_gate WHERE story_id='ST-001' AND gate='LOCALLY_INTEGRATED'").fetchone()
+    evidence = json.loads(row[0])["documents"]
+    assert evidence == {"folder": folder, "committed": [recorded], "skipped": [edited]}
+    assert "Dridh documents for f" in git(remote, "log", "--format=%s", "dridh/integration/f")

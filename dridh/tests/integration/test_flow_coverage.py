@@ -15,7 +15,7 @@ import pytest
 from dridh.coordinator.delivery_check import delivery_readiness
 from dridh.coordinator.lifecycle import StageEvidence
 from dridh.executor import flow_coverage as fc
-from dridh.ledger.drafts import LEDGER_PATH, add_drafts, ledger_file
+from dridh.ledger.drafts import add_drafts, ledger_file, ledger_path
 from dridh.ledger.flows import approved_flows, story_flows
 from dridh.state.store import StateStore
 from tests.e2e.planner_test_helpers import seed_approved_baseline
@@ -226,7 +226,7 @@ def test_leaving_execution_needs_every_flow_proven_or_explained_with_an_approved
 
     text = ledger_file(info).read_text()  # an approved entry edited afterwards needs approval again
     ledger_file(info).write_text(text.replace("later release", "never"))
-    run_module("ledger", "import", LEDGER_PATH, "--project", str(info.project_root))
+    run_module("ledger", "import", ledger_path(info), "--project", str(info.project_root))
     assert not delivery_readiness(info)["ready"]
 
 
@@ -269,4 +269,6 @@ def test_check_delivery_and_the_ledger_commands_find_the_workspace_ledger(env):
     info, _feature, _rest = env
     result = run_module("feature", "check-delivery", "--project", str(info.project_root))
     assert result.returncode == 0 and json.loads(result.stdout)["ready"] is False
-    assert os.path.relpath(ledger_file(info), info.project_root) == LEDGER_PATH
+    # The feature was created with a documents folder, so its ledger is that folder's 007-LEDGER.md.
+    assert os.path.relpath(ledger_file(info), info.project_root) == ledger_path(info)
+    assert ledger_path(info).startswith("docs/dridh/") and ledger_path(info).endswith("/007-LEDGER.md")
