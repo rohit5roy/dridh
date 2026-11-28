@@ -5,7 +5,7 @@
 **Tools:** `dridh_bridge` (Code Mode: `tools.dridh.bridge`) and `dridh_code`, the read-only code search  
 **SDK:** `@opencode/plugin` 2.3.2 (lock-pinned for the build); runs on OpenCode 2.2.5 or later. Node 24 is required to build and test it.
 
-The plugin is the OpenCode side of Dridh. It registers a tool that forwards calls to the Python runtime through the [bridge protocol](BRIDGE-PROTOCOL.md), a read-only code search tool, and a terminal UI (TUI) that shows the state of a Dridh feature inside OpenCode.
+The plugin is the OpenCode side of Dridh. It registers a tool that forwards calls to the Python runtime through the [bridge protocol](BRIDGE-PROTOCOL.md), a read-only code search tool, a terminal UI (TUI) that shows the state of a Dridh feature inside OpenCode, and the same for the OpenCode desktop app.
 
 ## Files
 
@@ -16,6 +16,12 @@ The plugin is the OpenCode side of Dridh. It registers a tool that forwards call
 | `src/executable.ts` | Finds the `dridh` command for the server bridge and the TUI |
 | `src/cli-result.ts` | Reads a `dridh ... --json` result for the TUI: data from stdout, the error envelope from stderr |
 | `tui/index.tsx` | Terminal UI: sidebar, session panel, status line and slash commands |
+| `gui/src/gui.tsx` | Desktop app: the Dridh side panel tab and palette command |
+| `gui/src/panel.tsx` | Desktop app screens: overview, document reading view, checklist, Approve and Request changes dialogs |
+| `gui/src/main.ts` | Desktop app main process: runs the `dridh` command for the app's windows |
+| `gui/src/commands.ts` | The commands the desktop panel may run, and the reply format |
+| `gui/src/confirm.py` | Runs a decision in a pseudo-terminal of its own and relays its typed confirmation |
+| `gui/tests/*.test.ts` | Desktop allowlist, reply and confirmation tests |
 | `tests/bridge-client.test.mjs` | Bridge client tests (PL-01 to PL-23, REL-02) |
 | `tests/executable.test.mjs` | Executable resolution tests |
 | `tests/cli-result.test.mjs` | Result and error parsing tests, including the real CLI without a workspace |
@@ -96,6 +102,37 @@ Exit code `0` is not success by itself. `ok: false` with exit `0` is mapped to `
 
 The TUI finds `dridh` with the same resolver as the server bridge. It imports `dist/executable.js` and `dist/cli-result.js`, which the installer places beside `tui/`. The CLI writes a failure as a JSON envelope on stderr; `cli-result.ts` turns it into its message and code, so `WORKSPACE_NOT_FOUND` is recognised as a first run. `tests/tui-plugin.test.mjs` checks that every `dridh` command the TUI starts goes through that resolver, and that the TUI only shells out to the `dridh` CLI (and `glow`).
 
+## Desktop app
+
+`gui/` adds Dridh to the OpenCode desktop app (2.4 or later) through its plugin interface for app windows, which
+OpenCode marks experimental. `npm run build` bundles it into one CommonJS file, `gui/dist/gui-experimental.cjs`, which the
+installer places beside `dist/` and `tui/`; the plugin's `./gui-experimental` export points to it. OpenCode itself is not
+modified, and the terminal UI is unchanged: the server, terminal and desktop parts share one OpenCode server.
+
+- **Side panel.** Projects with a Dridh workspace get a pinned *Dridh* tab in each session's side panel (the palette
+  command *Dridh: Open panel* opens it anywhere). The overview shows the feature, a stage track, the next step ("Your
+  turn" in amber when it is the person's) and the documents with their review status and checklist progress.
+- **Reading view.** A document opens with an outline (a sticky column when the panel is wide, a toggle when narrow),
+  its revision and validation, and the text rendered by the app's own Markdown renderer, which draws Mermaid diagrams.
+  Clicking a diagram opens it large.
+- **Review.** The checklist is real checkboxes (`dridh reviews checklist`). Under the document, *Approve* stays disabled
+  until every item is checked; *Request changes* puts the person's note into the session's message box, addressed to
+  the agent, for the person to send. Dridh has no reject command for use cases and designs: the agent revises the
+  document and it is reviewed again.
+- **Typed confirmation.** Approve asks for the reviewer's name (remembered), then starts the same command as the
+  terminal (`dridh ideator|designer|planner approve`). The app has no terminal, so `confirm.py` runs the command in a
+  pseudo-terminal of its own and relays Dridh's summary and the exact phrase to a dialog. The person types it; the text
+  is passed to Dridh unchanged and Dridh compares it. A wrong phrase is refused by Dridh; Cancel or Escape stops the
+  command and nothing is recorded. Decisions from the panel need macOS or Linux.
+- **What it may run.** Windows cannot start programs, so the app's main process runs `dridh` for them, and only the
+  commands listed in `gui/src/commands.ts`: `ui state` and `ui document` (read), `reviews checklist` (record), and the
+  three approvals (typed confirmation). It sets `--project` and `--json` itself. Agents have no tool that reaches the
+  main process.
+- **Look.** Colours and fonts come from the app's theme variables, so the panel follows light and dark mode; status is
+  shown with an icon as well as colour.
+- **The web version.** OpenCode's browser version does not load plugin screens, so the panel appears only in the
+  desktop app.
+
 ## Build and test
 
 ```bash
@@ -104,7 +141,7 @@ npm ci
 npm test
 ```
 
-`npm test` builds with `tsc` and runs the Node test suite: 46 tests in four files. `bridge-client.test.mjs` uses the real `dridh bridge` for PL-01, PL-02 and PL-04, and a fake bridge for the rest. The real bridge path can be set with `DRIDH_BIN`.
+`npm test` builds with `tsc` and runs the Node test suite: 46 tests in four files. `bridge-client.test.mjs` uses the real `dridh bridge` for PL-01, PL-02 and PL-04, and a fake bridge for the rest. The real bridge path can be set with `DRIDH_BIN`. `npm test` also builds and tests the desktop part (`gui/`, 8 tests): the command allowlist, the reply format and `confirm.py` against a stand-in for Dridh's typed confirmation.
 
 ## Hooks
 
